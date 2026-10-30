@@ -178,6 +178,8 @@ dotnet run --project client/PersonAgent.Desktop/PersonAgent.Desktop.csproj
 
 构建需要 .NET 8 SDK，运行需要 .NET 8 Desktop Runtime。客户端默认从仓库的 `dist/src/cli.js` 拉起服务；也可以通过 `PERSON_AGENT_CLI` 指定 CLI 路径，用 `PERSON_AGENT_NODE` 指定 node 可执行文件。`PERSON_AGENT_SERVE_COMMAND` 可指定服务可执行文件（客户端仍会追加 `serve --port 0`）。
 
+版本变更与已知限制见 [CHANGELOG.md](./CHANGELOG.md)。
+
 ## 科研任务闭环
 
 在 `person-agent chat` 中可以直接输入：
