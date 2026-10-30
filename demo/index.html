@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Person Agent 前端交互 Demo" />
+    <title>Person Agent · 研究生活工作台</title>
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#today" aria-label="Person Agent 首页">
+          <span class="brand-mark">PA</span>
+          <span><strong>Person Agent</strong><small>研究生活工作台</small></span>
+        </a>
+
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-item active" data-page="today">
+            <span class="nav-icon">⌂</span><span>今日</span><span class="nav-dot"></span>
+          </button>
+          <button class="nav-item" data-page="knowledge">
+            <span class="nav-icon">◇</span><span>知识库</span><span class="nav-badge">3</span>
+          </button>
+          <button class="nav-item" data-page="tasks">
+            <span class="nav-icon">✓</span><span>任务</span><span class="nav-badge muted">4</span>
+          </button>
+          <button class="nav-item" data-page="calendar">
+            <span class="nav-icon">□</span><span>日历</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="system-card">
+          <div><span class="live-dot"></span><strong>本地服务正常</strong></div>
+          <p>Zotero 与 Obsidian 已连接</p>
+          <span>上次同步 · 8 分钟前</span>
+        </div>
+        <button class="nav-item settings" data-page="settings"><span class="nav-icon">⚙</span><span>设置</span></button>
+        <div class="profile">
+          <div class="avatar">林</div>
+          <div><strong>林同学</strong><span>Asia / Shanghai</span></div>
+          <button aria-label="更多">•••</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="mobile-brand"><span class="brand-mark">PA</span><strong>Person Agent</strong></div>
+          <div class="search"><span>⌕</span><input id="global-search" aria-label="全局搜索" placeholder="搜索论文、任务或想法…" /><kbd>⌘ K</kbd></div>
+          <div class="top-actions">
+            <span class="demo-pill">模拟数据</span>
+            <button class="icon-btn" aria-label="通知">♢<span class="notification-dot"></span></button>
+            <button class="primary-btn" id="quick-capture"><span>＋</span> 快速记录</button>
+          </div>
+        </header>
+
+        <section class="page active" id="page-today">
+          <div class="page-heading">
+            <div><p class="eyebrow">2026 年 10 月 30 日 · 星期五</p><h1>早上好，今天专注做三件事。</h1><p>我已经把邮件、日历和知识库整理成一条可执行的时间线。</p></div>
+            <div class="weather"><span class="weather-icon">☀</span><div><strong>18°C</strong><small>上海 · 晴</small></div><p>下午有风，薄外套就好</p></div>
+          </div>
+
+          <div class="focus-card">
+            <div class="focus-copy">
+              <span class="section-kicker">TODAY'S FOCUS</span>
+              <h2>先完成组会实验对比，再读两篇新论文。</h2>
+              <p>10:00 前有一段完整的 90 分钟空档。下午 14:30 的组会需要你汇报，材料还差最后一页消融实验。</p>
+              <div class="focus-actions">
+                <button class="light-btn" id="start-focus">开始专注 <span>→</span></button>
+                <button class="text-btn" data-goto="calendar">查看今日安排</button>
+              </div>
+            </div>
+            <div class="focus-visual" aria-label="今日专注进度示意">
+              <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+              <div class="focus-ring"><strong>3</strong><span>件重点</span></div>
+              <span class="orbit-label label-one">实验</span><span class="orbit-label label-two">阅读</span><span class="orbit-label label-three">组会</span>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <article class="stat-card"><div><span class="stat-icon blue">✓</span><span class="trend">本周 +12%</span></div><strong>4 <small>/ 6</small></strong><p>今日任务</p><div class="mini-progress"><i style="width:66%"></i></div></article>
+            <article class="stat-card"><div><span class="stat-icon orange">◇</span><span class="trend neutral">Zotero</span></div><strong>3</strong><p>待消化论文</p><div class="mini-stack"><i></i><i></i><i></i></div></article>
+            <article class="stat-card"><div><span class="stat-icon violet">◷</span><span class="trend neutral">深度工作</span></div><strong>3.5 <small>小时</small></strong><p>今日可用专注时间</p><div class="spark"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+            <article class="stat-card"><div><span class="stat-icon green">↗</span><span class="trend good">已同步</span></div><strong>12</strong><p>本周新增知识卡片</p><div class="avatars"><span>FM</span><span>CFD</span><span>RL</span><span>+9</span></div></article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel timeline-panel">
+              <div class="panel-heading"><div><span class="section-kicker dark">今日节奏</span><h3>时间线</h3></div><button class="text-btn" data-goto="calendar">完整日历 →</button></div>
+              <div class="timeline">
+                <article class="timeline-row done"><time>07:30</time><div class="timeline-track"><i></i></div><div><span class="tiny-label">已完成</span><h4>晨间简报</h4><p>天气、邮件与今日安排已汇总</p></div><button aria-label="已完成">✓</button></article>
+                <article class="timeline-row current"><time>08:30</time><div class="timeline-track"><i></i></div><div><span class="tiny-label">正在进行</span><h4>组会实验对比</h4><p>补充 S3 消融实验 · 预计 90 分钟</p></div><button class="small-action" id="finish-task">完成</button></article>
+                <article class="timeline-row"><time>10:30</time><div class="timeline-track"><i></i></div><div><h4>论文深读</h4><p>Flow Matching for PDE Surrogates</p></div><span class="duration">60 min</span></article>
+                <article class="timeline-row"><time>14:30</time><div class="timeline-track"><i></i></div><div><h4>课题组组会</h4><p>理科楼 A203 · 需要汇报</p></div><span class="duration">90 min</span></article>
+                <article class="timeline-row"><time>22:30</time><div class="timeline-track"><i></i></div><div><span class="tiny-label auto">自动</span><h4>知识整理</h4><p>同步 Zotero 并生成 Obsidian 日报</p></div><span class="duration">后台</span></article>
+              </div>
+            </section>
+
+            <section class="panel digest-panel">
+              <div class="panel-heading"><div><span class="section-kicker dark">KNOWLEDGE DIGEST</span><h3>今日知识流</h3></div><button class="dots" aria-label="更多">•••</button></div>
+              <div class="paper-feature" data-paper="fm">
+                <div class="paper-cover cover-blue"><span>FM</span><small>2026</small></div>
+                <div class="paper-copy"><span class="paper-state">待深读 · 全文可用</span><h4>Flow Matching for PDE Surrogates</h4><p>用连续流匹配学习偏微分方程的条件分布。</p><div class="paper-tags"><span>Flow Matching</span><span>PDE</span></div></div>
+              </div>
+              <div class="paper-feature" data-paper="active">
+                <div class="paper-cover cover-orange"><span>AF</span><small>ICLR</small></div>
+                <div class="paper-copy"><span class="paper-state partial">摘要分析</span><h4>Active Flow Control with World Models</h4><p>从部分观测中学习可用于控制的动力学表征。</p><div class="paper-tags"><span>Control</span><span>World Model</span></div></div>
+              </div>
+              <button class="wide-btn" id="run-digest">立即整理今日知识 <span>→</span></button>
+              <p class="panel-footnote"><span class="live-dot"></span> 每晚 22:30 自动执行 · 最多深读 5 篇</p>
+            </section>
+          </div>
+
+          <section class="approval-card" id="approval-card">
+            <div class="approval-icon">✦</div><div><span class="section-kicker dark">需要你的确认</span><h3>我找到一个更合适的实验时段</h3><p>原定周六上午的“复现实验”与临时讲座冲突，建议移动到周六 14:00–16:00。确认后才会写入 Google Calendar。</p></div>
+            <div class="approval-time"><span>周六</span><strong>14:00</strong><small>— 16:00</small></div>
+            <div class="approval-actions"><button class="outline-btn" id="dismiss-approval">暂不处理</button><button class="primary-btn" id="approve-slot">确认安排</button></div>
+          </section>
+        </section>
+
+        <section class="page" id="page-knowledge">
+          <div class="page-heading simple"><div><p class="eyebrow">LOCAL KNOWLEDGE BASE</p><h1>知识库</h1><p>Zotero 负责收藏，Person Agent 负责消化，Obsidian 负责沉淀。</p></div><button class="primary-btn" id="sync-knowledge">↻ 同步 Zotero</button></div>
+          <div class="knowledge-layout">
+            <section class="library-panel">
+              <div class="library-toolbar"><div class="filter-tabs"><button class="active" data-filter="all">全部 24</button><button data-filter="pending">待深读 3</button><button data-filter="complete">已整理 21</button></div><select aria-label="排序"><option>最近添加</option><option>标题</option></select></div>
+              <div class="paper-list" id="paper-list">
+                <article class="library-paper" data-state="pending" data-title="Flow Matching for PDE Surrogates"><div class="paper-cover cover-blue"><span>FM</span><small>2026</small></div><div class="library-copy"><span class="paper-state">待深读 · 全文可用</span><h3>Flow Matching for PDE Surrogates</h3><p>Y. Chen, L. Wang, M. Li · arXiv 2026</p><div class="paper-tags"><span>Flow Matching</span><span>PDE</span><span>Surrogate</span></div></div><button class="outline-btn read-paper">开始深读</button></article>
+                <article class="library-paper" data-state="complete" data-title="Particle-Guided Diffusion for PDEs"><div class="paper-cover cover-violet"><span>PG</span><small>NeurIPS</small></div><div class="library-copy"><span class="paper-state complete">已深读 · 全文</span><h3>Particle-Guided Diffusion for PDEs</h3><p>J. Park, S. Kim · NeurIPS 2025</p><div class="paper-tags"><span>Diffusion</span><span>Inverse Problem</span></div></div><button class="text-btn open-detail">查看卡片 →</button></article>
+                <article class="library-paper" data-state="complete" data-title="Learning to Control Fluid Flows"><div class="paper-cover cover-orange"><span>LC</span><small>JFM</small></div><div class="library-copy"><span class="paper-state partial">已整理 · 仅摘要</span><h3>Learning to Control Fluid Flows</h3><p>A. Gupta, R. Vinuesa · JFM 2025</p><div class="paper-tags"><span>Active Flow</span><span>RL</span></div></div><button class="text-btn open-detail">查看卡片 →</button></article>
+                <article class="library-paper" data-state="complete" data-title="Graph Neural Operators for Turbulence"><div class="paper-cover cover-green"><span>GN</span><small>ICML</small></div><div class="library-copy"><span class="paper-state complete">已深读 · 头尾采样</span><h3>Graph Neural Operators for Turbulence</h3><p>M. Rossi et al. · ICML 2025</p><div class="paper-tags"><span>GNN</span><span>Turbulence</span></div></div><button class="text-btn open-detail">查看卡片 →</button></article>
+                <div class="library-empty" id="library-empty"><span>◇</span><h3>这个筛选下暂时没有论文</h3><p>切换到“全部”查看已有知识卡片。</p></div>
+              </div>
+            </section>
+            <aside class="insight-panel">
+              <span class="section-kicker dark">本周知识画像</span><h3>你最近更关注<br />“可控的世界模型”</h3>
+              <div class="topic-map"><span class="topic t1">World Model</span><span class="topic t2">PDE</span><span class="topic t3">Flow<br />Matching</span><span class="topic t4">Control</span><span class="topic t5">GNN</span></div>
+              <div class="insight-stat"><strong>12</strong><span>新增卡片</span><strong>7</strong><span>已完成深读</span></div>
+              <p>近 7 天共出现 5 次 “部分观测”，可在 Obsidian 中建立一条主题索引。</p><button class="wide-btn" id="create-index">生成主题索引 <span>→</span></button>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="page-tasks">
+          <div class="page-heading simple"><div><p class="eyebrow">TASKS & APPROVAL</p><h1>任务</h1><p>先看清来源和截止时间，再决定什么时候做。</p></div><button class="primary-btn" data-open-capture="task">＋ 新建任务</button></div>
+          <div class="task-summary"><div><span>本周完成</span><strong>14 / 18</strong><div class="mini-progress"><i style="width:78%"></i></div></div><div><span>预计投入</span><strong>11.5 h</strong><small>剩余 6.5 h</small></div><div><span>等待确认</span><strong class="accent">2</strong><small>Calendar 写入前确认</small></div></div>
+          <div class="kanban">
+            <section class="kanban-col"><header><h3>待安排</h3><span>2</span></header><article class="task-card"><span class="task-type blue">科研</span><h4>整理 Flow Matching 相关工作</h4><p>来源：导师邮件 · 10 月 29 日</p><div><span>◷ 90 分钟</span><span>11 月 2 日</span></div></article><article class="task-card"><span class="task-type orange">作业</span><h4>数值分析第三次作业</h4><p>手动录入</p><div><span>◷ 120 分钟</span><span>明天截止</span></div></article></section>
+            <section class="kanban-col"><header><h3>已计划</h3><span>2</span></header><article class="task-card active-task"><span class="task-type blue">科研</span><h4>补充 S3 消融实验</h4><p>今天 08:30 — 10:00</p><div><span>进行中</span><span>65%</span></div><div class="mini-progress"><i style="width:65%"></i></div></article><article class="task-card"><span class="task-type violet">阅读</span><h4>深读 PDE Surrogate 论文</h4><p>今天 10:30 — 11:30</p><div><span>◷ 60 分钟</span><span>今日</span></div></article></section>
+            <section class="kanban-col"><header><h3>已完成</h3><span>3</span></header><article class="task-card completed-task"><span class="task-type green">完成</span><h4>更新组会 PPT 实验设置</h4><p>今天 07:55 完成</p><div><span>✓ 已归档</span></div></article><article class="task-card completed-task"><span class="task-type green">完成</span><h4>回复课程助教邮件</h4><p>昨天 21:30 完成</p><div><span>✓ 已归档</span></div></article></section>
+          </div>
+        </section>
+
+        <section class="page" id="page-calendar">
+          <div class="page-heading simple"><div><p class="eyebrow">CALENDAR</p><h1>本周安排</h1><p>日程、讲座与专注任务在一个视图里。</p></div><div class="calendar-actions"><button class="outline-btn">‹</button><button class="outline-btn">今天</button><button class="outline-btn">›</button></div></div>
+          <section class="week-calendar">
+            <div class="calendar-head"><span></span><div><small>周一</small><strong>26</strong></div><div><small>周二</small><strong>27</strong></div><div><small>周三</small><strong>28</strong></div><div><small>周四</small><strong>29</strong></div><div class="today"><small>周五</small><strong>30</strong></div><div><small>周六</small><strong>31</strong></div><div><small>周日</small><strong>01</strong></div></div>
+            <div class="calendar-body">
+              <div class="time-labels"><span>08:00</span><span>10:00</span><span>12:00</span><span>14:00</span><span>16:00</span><span>18:00</span></div>
+              <div class="day-col"></div><div class="day-col"><div class="event blue" style="top:64px;height:74px"><strong>课程</strong><span>数值分析</span><small>09:00</small></div></div><div class="day-col"><div class="event green" style="top:232px;height:84px"><strong>专注</strong><span>读论文</span><small>13:30</small></div></div><div class="day-col"><div class="event orange" style="top:310px;height:78px"><strong>讲座</strong><span>AI for Science</span><small>15:00</small></div></div><div class="day-col today-col"><div class="now-line" style="top:118px"><i></i></div><div class="event blue" style="top:48px;height:92px"><strong>科研</strong><span>S3 消融实验</span><small>08:30</small></div><div class="event violet" style="top:282px;height:100px"><strong>组会</strong><span>课题组周会</span><small>14:30</small></div></div><div class="day-col"><div class="event pending" style="top:256px;height:112px"><strong>待确认</strong><span>复现实验</span><small>14:00</small></div></div><div class="day-col"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" id="page-settings">
+          <div class="page-heading simple"><div><p class="eyebrow">LOCAL FIRST</p><h1>连接与自动化</h1><p>此页为 Demo 配置，不会连接或修改真实服务。</p></div></div>
+          <div class="settings-grid">
+            <article class="connection-card"><div class="connection-logo zotero">Z</div><div><h3>Zotero</h3><p>本地论文库 · 只读</p></div><span class="connected">已连接</span><button class="outline-btn">管理</button></article>
+            <article class="connection-card"><div class="connection-logo obsidian">◈</div><div><h3>Obsidian</h3><p>Person Agent Knowledge</p></div><span class="connected">已连接</span><button class="outline-btn">打开</button></article>
+            <article class="connection-card"><div class="connection-logo google">G</div><div><h3>Google Calendar</h3><p>写入操作需要审批</p></div><span class="connected">已连接</span><button class="outline-btn">管理</button></article>
+            <article class="connection-card"><div class="connection-logo gmail">M</div><div><h3>Gmail</h3><p>邮件读取 · 只读</p></div><span class="connected">已连接</span><button class="outline-btn">管理</button></article>
+          </div>
+          <section class="automation-panel"><div><span class="section-kicker dark">AUTOMATIONS</span><h3>每日自动化</h3></div><div class="automation-row"><div class="auto-time">07:30</div><div><h4>晨间简报</h4><p>天气、日程和讲座汇总</p></div><label class="switch"><input type="checkbox" checked /><span></span></label></div><div class="automation-row"><div class="auto-time">22:30</div><div><h4>知识整理</h4><p>Zotero 同步、论文深读与 Obsidian 日报</p></div><label class="switch"><input type="checkbox" checked /><span></span></label></div></section>
+        </section>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="capture-modal" aria-hidden="true">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="capture-title">
+        <button class="modal-close" aria-label="关闭">×</button>
+        <span class="section-kicker dark">QUICK CAPTURE</span><h2 id="capture-title">记下来，剩下的交给 Agent。</h2><p>内容只会保存到本地。Idea 不会自动变成任务。</p>
+        <div class="capture-tabs"><button class="active" data-kind="idea">Idea</button><button data-kind="task">任务</button><button data-kind="lecture">讲座</button></div>
+        <form id="capture-form">
+          <label>标题<input id="capture-name" required placeholder="例如：把部分观测建模成后验" /></label>
+          <label>补充说明<textarea id="capture-note" rows="4" placeholder="写下背景、下一步或来源…"></textarea></label>
+          <div class="form-row"><label>标签<input placeholder="实验, 方法" /></label><label>日期<input type="date" value="2026-10-30" /></label></div>
+          <div class="modal-actions"><button type="button" class="outline-btn modal-cancel">取消</button><button type="submit" class="primary-btn">保存到本地</button></div>
+        </form>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status"><span>✓</span><div><strong>已保存</strong><p>内容已写入本地知识库</p></div></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

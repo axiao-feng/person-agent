@@ -1,0 +1,1415 @@
+openapi: 3.1.0
+info:
+  title: Person Agent Local API
+  version: 0.2.0
+  summary: WPF 客户端与本机 TypeScript 服务之间的实现合同
+  description: |
+    本合同描述 Windows 当前用户会话内的 loopback API。
+    阶段 1–3 已实现本文全部接口（`src/server/`、`person-agent serve`）。
+    WPF 客户端通过同一合同完成今日、知识库、任务、日历、设置、快速记录、搜索、Agent 和审批。
+servers:
+  - url: http://127.0.0.1:{port}
+    description: 由 WPF 启动的本机临时服务
+    variables:
+      port:
+        default: "43127"
+        description: 实际运行时使用系统分配的随机端口
+security:
+  - SessionToken: []
+tags:
+  - name: System
+  - name: Today
+  - name: Search
+  - name: Tasks
+  - name: Calendar
+  - name: Lectures
+  - name: Ideas
+  - name: Papers
+  - name: Knowledge
+  - name: Approvals
+  - name: Settings
+  - name: Agent
+
+paths:
+  /api/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: 获取本地服务、worker 和连接概况
+      x-person-agent-phase: 1
+      responses:
+        "200":
+          description: 本地服务可以响应；外部来源可能处于 degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/today:
+    get:
+      tags: [Today]
+      operationId: getToday
+      summary: 获取指定业务日期的聚合快照
+      x-person-agent-phase: 1
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: 不提供时使用配置时区中的今天
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: 完整或部分成功的今日快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodayResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/search:
+    get:
+      tags: [Search]
+      operationId: search
+      summary: 跨论文、任务、Idea 和讲座搜索
+      x-person-agent-phase: 3
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: types
+          in: query
+          required: false
+          description: 逗号分隔；缺省为全部类型
+          schema:
+            type: string
+            example: paper,task,idea,lecture
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: 搜索结果；结果是库内事实，不是模型回答
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: 查询本地任务
+      x-person-agent-phase: 2
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/TaskStatus"
+      responses:
+        "200":
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: 创建本地 draft 任务
+      x-person-agent-phase: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: 已持久化的任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/tasks/{taskId}:
+    patch:
+      tags: [Tasks]
+      operationId: updateTask
+      summary: 编辑任务或执行开始、完成、取消命令
+      description: |
+        客户端不能直接提交 status。planned/needs_replan 由审批执行和冲突监控产生。
+      x-person-agent-phase: 2
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/EditTaskRequest"
+                - $ref: "#/components/schemas/TaskCommandRequest"
+      responses:
+        "200":
+          description: 更新后的任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/tasks/{taskId}/candidate-slots:
+    get:
+      tags: [Tasks]
+      operationId: listTaskCandidateSlots
+      summary: 计算任务候选空闲时段
+      x-person-agent-phase: 2
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - name: start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+      responses:
+        "200":
+          description: 基于 Calendar、本地讲座和已计划任务计算的候选时段
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CandidateSlotsResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+  /api/tasks/{taskId}/schedule:
+    post:
+      tags: [Tasks]
+      operationId: stageTaskSchedule
+      summary: 为所选时段生成 Calendar 待审批操作
+      description: 只生成 pending action，不写入 Calendar，不把任务改为 planned。
+      x-person-agent-phase: 2
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleTaskRequest"
+      responses:
+        "201":
+          description: 已持久化的待审批操作
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/calendar:
+    get:
+      tags: [Calendar]
+      operationId: getCalendar
+      summary: 聚合 Google 事件、本地讲座、任务和待审批时段
+      x-person-agent-phase: 2
+      parameters:
+        - name: start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: 完整或 partial 的日历视图
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/lectures:
+    get:
+      tags: [Lectures]
+      operationId: listLectures
+      summary: 查询本地讲座
+      x-person-agent-phase: 2
+      parameters:
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: 讲座列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LectureListResponse"
+    post:
+      tags: [Lectures]
+      operationId: createLecture
+      summary: 创建讲座及其提醒
+      x-person-agent-phase: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLectureRequest"
+      responses:
+        "201":
+          description: 已持久化的讲座
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LectureResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/ideas:
+    post:
+      tags: [Ideas]
+      operationId: createIdea
+      summary: 在 Obsidian Vault 中创建 Idea
+      x-person-agent-phase: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIdeaRequest"
+      responses:
+        "201":
+          description: 已写入的 Idea 笔记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdeaResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+  /api/papers:
+    get:
+      tags: [Papers]
+      operationId: listPapers
+      summary: 查询论文与本地分析状态
+      x-person-agent-phase: 2
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, retrying, partial, complete]
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [recent, title]
+            default: recent
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 论文列表及真实筛选计数
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaperListResponse"
+
+  /api/papers/{paperKey}:
+    get:
+      tags: [Papers]
+      operationId: getPaper
+      summary: 获取论文题录、分析、证据状态和打开链接
+      x-person-agent-phase: 2
+      parameters:
+        - $ref: "#/components/parameters/PaperKey"
+      responses:
+        "200":
+          description: 论文详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaperResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/knowledge/sync:
+    post:
+      tags: [Knowledge]
+      operationId: startKnowledgeSync
+      summary: 启动 Zotero 只读同步
+      x-person-agent-phase: 2
+      responses:
+        "202":
+          description: 新建或复用同类运行中的 operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/knowledge/digest:
+    post:
+      tags: [Knowledge]
+      operationId: startKnowledgeDigest
+      summary: 启动知识整理
+      x-person-agent-phase: 2
+      responses:
+        "202":
+          description: 新建或复用同类运行中的 operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/operations/{operationId}:
+    get:
+      tags: [Knowledge]
+      operationId: getOperation
+      summary: 查询长任务的持久化状态
+      x-person-agent-phase: 2
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 操作状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/approvals:
+    get:
+      tags: [Approvals]
+      operationId: listApprovals
+      summary: 查询待审批或历史外部操作
+      x-person-agent-phase: 3
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ApprovalStatus"
+      responses:
+        "200":
+          description: 审批列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalListResponse"
+
+  /api/approvals/{actionId}/approve:
+    post:
+      tags: [Approvals]
+      operationId: approveAction
+      summary: 批准并执行存储的固定 Calendar payload
+      description: 请求体为空；客户端不得覆盖 payload。
+      x-person-agent-phase: 3
+      parameters:
+        - $ref: "#/components/parameters/ActionId"
+      responses:
+        "200":
+          description: 执行后的 action；外部调用失败时 action.status=failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+  /api/approvals/{actionId}/reject:
+    post:
+      tags: [Approvals]
+      operationId: rejectAction
+      summary: 拒绝待审批操作
+      x-person-agent-phase: 3
+      parameters:
+        - $ref: "#/components/parameters/ActionId"
+      responses:
+        "200":
+          description: 已拒绝的 action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: 获取可公开配置、连接和自动化状态
+      x-person-agent-phase: 2
+      responses:
+        "200":
+          description: 不包含任何密钥或 token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsResponse"
+    patch:
+      tags: [Settings]
+      operationId: updateSettings
+      summary: 修改用户配置并刷新 worker 调度
+      x-person-agent-phase: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsRequest"
+      responses:
+        "200":
+          description: 已持久化并重新计算后的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/agent/messages:
+    post:
+      tags: [Agent]
+      operationId: sendAgentMessage
+      summary: 向 Agent 发送一条消息
+      description: 首版非流式；模型回答与库内搜索结果必须分区展示。
+      x-person-agent-phase: 3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentMessageRequest"
+      responses:
+        "200":
+          description: 模型回答及引用的本地对象
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentMessageResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+components:
+  securitySchemes:
+    SessionToken:
+      type: apiKey
+      in: header
+      name: X-Person-Agent-Token
+      description: WPF 每次启动生成并通过子进程环境传递的一次性 token
+
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ActionId:
+      name: actionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PaperKey:
+      name: paperKey
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+
+  responses:
+    BadRequest:
+      description: 请求语法或参数格式错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: session token 缺失或无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: 对象不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: 当前状态不允许该操作，或同类操作已在运行
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationFailed:
+      description: 领域校验失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DependencyUnavailable:
+      description: 外部依赖暂不可用且该操作无法降级
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ResponseMeta:
+      type: object
+      required: [requestId, generatedAt]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        generatedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [requestId, error]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+              examples: [VALIDATION_FAILED]
+            message:
+              type: string
+            retryable:
+              type: boolean
+            fieldErrors:
+              type: object
+              additionalProperties:
+                type: string
+
+    SourceState:
+      type: string
+      enum: [available, unavailable, not_configured, unknown]
+
+    SourceStatus:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state:
+          $ref: "#/components/schemas/SourceState"
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+        message:
+          type: [string, "null"]
+
+    HealthResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [status, service, worker, connections]
+          properties:
+            status:
+              type: string
+              enum: [ok, degraded]
+            service:
+              type: object
+              additionalProperties: false
+              required: [version, protocolVersion, uptimeSeconds]
+              properties:
+                version:
+                  type: string
+                protocolVersion:
+                  type: string
+                uptimeSeconds:
+                  type: integer
+                  minimum: 0
+            worker:
+              type: object
+              additionalProperties: false
+              required: [state]
+              properties:
+                state:
+                  type: string
+                  enum: [running, stopped, not_installed, unknown]
+                lastRunAt:
+                  type: [string, "null"]
+                  format: date-time
+            connections:
+              type: object
+              additionalProperties: false
+              required: [database, vault, zotero, googleCalendar, gmail, deepSeek, weather]
+              properties:
+                database: { $ref: "#/components/schemas/SourceStatus" }
+                vault: { $ref: "#/components/schemas/SourceStatus" }
+                zotero: { $ref: "#/components/schemas/SourceStatus" }
+                googleCalendar: { $ref: "#/components/schemas/SourceStatus" }
+                gmail: { $ref: "#/components/schemas/SourceStatus" }
+                deepSeek: { $ref: "#/components/schemas/SourceStatus" }
+                weather: { $ref: "#/components/schemas/SourceStatus" }
+
+    TodayResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [date, timezone, status, sources, focusItems, timeline, knowledgeItems, approvals]
+          properties:
+            date:
+              type: string
+              format: date
+            timezone:
+              type: string
+              examples: [Asia/Shanghai]
+            status:
+              type: string
+              enum: [success, partial]
+            sources:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/SourceStatus"
+            weather:
+              oneOf:
+                - $ref: "#/components/schemas/WeatherSummary"
+                - type: "null"
+            focusItems:
+              type: array
+              maxItems: 3
+              items:
+                $ref: "#/components/schemas/FocusItem"
+            timeline:
+              type: array
+              items:
+                $ref: "#/components/schemas/TimelineItem"
+            knowledgeItems:
+              type: array
+              maxItems: 5
+              items:
+                $ref: "#/components/schemas/PaperSummary"
+            approvals:
+              type: array
+              items:
+                $ref: "#/components/schemas/Approval"
+
+    WeatherSummary:
+      type: object
+      additionalProperties: false
+      required: [city, condition]
+      properties:
+        city: { type: string }
+        condition: { type: string }
+        temperature: { type: [number, "null"] }
+        apparentTemperature: { type: [number, "null"] }
+        precipitationProbability: { type: [number, "null"] }
+        windSpeed: { type: [number, "null"] }
+
+    FocusItem:
+      type: object
+      additionalProperties: false
+      required: [type, id, title, reasonCode]
+      properties:
+        type:
+          type: string
+          enum: [task, lecture]
+        id: { type: string }
+        title: { type: string }
+        reasonCode:
+          type: string
+          enum: [in_progress, planned_today, due_today, overdue, high_priority, presentation_today]
+        startAt: { type: [string, "null"], format: date-time }
+        endAt: { type: [string, "null"], format: date-time }
+        deadline: { type: [string, "null"], format: date-time }
+
+    TimelineItem:
+      type: object
+      additionalProperties: false
+      required: [id, source, title, startAt, allDay, status]
+      properties:
+        id: { type: string }
+        source:
+          type: string
+          enum: [google, lecture, task, automation, approval]
+        title: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: [string, "null"], format: date-time }
+        allDay: { type: boolean }
+        status: { type: string }
+        detail: { type: [string, "null"] }
+        linkedObjectId: { type: [string, "null"] }
+
+    TaskStatus:
+      type: string
+      enum: [draft, planned, in_progress, needs_replan, completed, cancelled]
+
+    Task:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - taskKind
+        - sourceType
+        - estimatedMinutes
+        - priority
+        - status
+        - confidence
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        taskKind:
+          type: string
+          enum: [research, assignment, other]
+        sourceType:
+          type: string
+          enum: [manual, email]
+        sourceId: { type: [string, "null"] }
+        deadline: { type: [string, "null"], format: date-time }
+        estimatedMinutes: { type: integer, minimum: 5, maximum: 1440 }
+        priority:
+          type: string
+          enum: [low, medium, high]
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        plannedStart: { type: [string, "null"], format: date-time }
+        plannedEnd: { type: [string, "null"], format: date-time }
+        calendarEventId: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [title, taskKind, estimatedMinutes]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        taskKind:
+          type: string
+          enum: [research, assignment, other]
+        deadline: { type: [string, "null"], format: date-time }
+        estimatedMinutes: { type: integer, minimum: 5, maximum: 1440 }
+        priority:
+          type: string
+          enum: [low, medium, high]
+          default: medium
+
+    EditTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [operation]
+      properties:
+        operation:
+          const: edit
+        title: { type: string, minLength: 1, maxLength: 200 }
+        taskKind:
+          type: string
+          enum: [research, assignment, other]
+        deadline: { type: [string, "null"], format: date-time }
+        estimatedMinutes: { type: integer, minimum: 5, maximum: 1440 }
+        priority:
+          type: string
+          enum: [low, medium, high]
+
+    TaskCommandRequest:
+      type: object
+      additionalProperties: false
+      required: [operation]
+      properties:
+        operation:
+          type: string
+          enum: [start, complete, cancel]
+
+    TaskResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [task]
+          properties:
+            task: { $ref: "#/components/schemas/Task" }
+
+    TaskListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Task" }
+
+    CandidateSlot:
+      type: object
+      additionalProperties: false
+      required: [startAt, endAt, availableMinutes]
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        availableMinutes: { type: integer, minimum: 1 }
+
+    CandidateSlotsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [taskId, slots]
+          properties:
+            taskId: { type: string, format: uuid }
+            slots:
+              type: array
+              items: { $ref: "#/components/schemas/CandidateSlot" }
+
+    ScheduleTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [startAt, endAt]
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+
+    Lecture:
+      type: object
+      additionalProperties: false
+      required: [id, title, startAt, requiresPresentation, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: [string, "null"], format: date-time }
+        location: { type: [string, "null"] }
+        speaker: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        requiresPresentation: { type: boolean }
+        status:
+          type: string
+          enum: [active, cancelled]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CreateLectureRequest:
+      type: object
+      additionalProperties: false
+      required: [title, startAt]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: [string, "null"], format: date-time }
+        location: { type: [string, "null"], maxLength: 500 }
+        speaker: { type: [string, "null"], maxLength: 200 }
+        notes: { type: [string, "null"], maxLength: 4000 }
+        requiresPresentation: { type: boolean, default: false }
+
+    LectureResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [lecture]
+          properties:
+            lecture: { $ref: "#/components/schemas/Lecture" }
+
+    LectureListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Lecture" }
+
+    CreateIdeaRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        title: { type: [string, "null"], maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 100000 }
+        tags:
+          type: array
+          maxItems: 20
+          items: { type: string, minLength: 1, maxLength: 50 }
+
+    IdeaNote:
+      type: object
+      additionalProperties: false
+      required: [title, relativePath, createdAt, tags]
+      properties:
+        title: { type: string }
+        relativePath: { type: string }
+        createdAt: { type: string, format: date-time }
+        tags:
+          type: array
+          items: { type: string }
+        openUrl: { type: [string, "null"], format: uri }
+
+    IdeaResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [idea]
+          properties:
+            idea: { $ref: "#/components/schemas/IdeaNote" }
+
+    PaperAnalysis:
+      type: object
+      additionalProperties: false
+      required: [direction, results, limitations, basis, truncated]
+      properties:
+        direction: { type: string }
+        results: { type: string }
+        limitations: { type: string }
+        basis: { type: string }
+        truncated: { type: boolean }
+
+    PaperSummary:
+      type: object
+      required: [key, title, creators, tags, evidenceState, firstSeenAt, updatedAt]
+      properties:
+        key: { type: string }
+        title: { type: string }
+        creators:
+          type: array
+          items: { type: string }
+        dateText: { type: [string, "null"] }
+        tags:
+          type: array
+          items: { type: string }
+        evidenceState:
+          type: string
+          enum: [pending, retrying, abstract_only, fulltext, truncated_fulltext]
+        retryAt: { type: [string, "null"], format: date-time }
+        firstSeenAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Paper:
+      allOf:
+        - $ref: "#/components/schemas/PaperSummary"
+        - type: object
+          required: [itemType, version, fulltextState, analysisState]
+          properties:
+            itemType: { type: string }
+            version: { type: integer }
+            abstract: { type: [string, "null"] }
+            doi: { type: [string, "null"] }
+            sourceUrl: { type: [string, "null"], format: uri }
+            fulltextState:
+              type: string
+              enum: [unknown, available, unavailable]
+            analysisState:
+              type: string
+              enum: [pending, partial, complete]
+            analysis:
+              oneOf:
+                - $ref: "#/components/schemas/PaperAnalysis"
+                - type: "null"
+            analysisError: { type: [string, "null"] }
+            analyzedAt: { type: [string, "null"], format: date-time }
+            links:
+              type: object
+              additionalProperties: false
+              properties:
+                zotero: { type: [string, "null"], format: uri }
+                obsidian: { type: [string, "null"], format: uri }
+
+    PaperListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [items, offset, limit, total, counts]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/PaperSummary" }
+            offset: { type: integer, minimum: 0 }
+            limit: { type: integer, minimum: 1 }
+            total: { type: integer, minimum: 0 }
+            counts:
+              type: object
+              additionalProperties: false
+              required: [pending, retrying, partial, complete]
+              properties:
+                pending: { type: integer, minimum: 0 }
+                retrying: { type: integer, minimum: 0 }
+                partial: { type: integer, minimum: 0 }
+                complete: { type: integer, minimum: 0 }
+
+    PaperResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [paper]
+          properties:
+            paper: { $ref: "#/components/schemas/Paper" }
+
+    CalendarItem:
+      type: object
+      additionalProperties: false
+      required: [id, source, title, startAt, endAt, allDay, status, conflict]
+      properties:
+        id: { type: string }
+        source:
+          type: string
+          enum: [google, lecture, task, approval]
+        title: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        allDay: { type: boolean }
+        status: { type: string }
+        conflict: { type: boolean }
+        linkedObjectId: { type: [string, "null"] }
+
+    CalendarResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [status, sources, items]
+          properties:
+            status:
+              type: string
+              enum: [success, partial]
+            sources:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/SourceStatus"
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/CalendarItem" }
+
+    ApprovalStatus:
+      type: string
+      enum: [pending, approved, executing, executed, failed, rejected]
+
+    Approval:
+      type: object
+      additionalProperties: false
+      required: [id, kind, status, display, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [calendar.create, calendar.update]
+        status: { $ref: "#/components/schemas/ApprovalStatus" }
+        display:
+          type: object
+          additionalProperties: false
+          required: [target, title, proposedStart, proposedEnd]
+          properties:
+            target: { const: Google Calendar }
+            title: { type: string }
+            reason: { type: [string, "null"] }
+            originalStart: { type: [string, "null"], format: date-time }
+            originalEnd: { type: [string, "null"], format: date-time }
+            proposedStart: { type: string, format: date-time }
+            proposedEnd: { type: string, format: date-time }
+        error: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        approvedAt: { type: [string, "null"], format: date-time }
+        executedAt: { type: [string, "null"], format: date-time }
+
+    ApprovalResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [approval]
+          properties:
+            approval: { $ref: "#/components/schemas/Approval" }
+
+    ApprovalListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Approval" }
+
+    Operation:
+      type: object
+      additionalProperties: false
+      required: [id, kind, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [knowledge.sync, knowledge.digest]
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed]
+        stage: { type: [string, "null"] }
+        progressCurrent: { type: [integer, "null"], minimum: 0 }
+        progressTotal: { type: [integer, "null"], minimum: 0 }
+        result:
+          type: [object, "null"]
+          additionalProperties: true
+        error: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, "null"], format: date-time }
+        completedAt: { type: [string, "null"], format: date-time }
+
+    OperationResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [operation]
+          properties:
+            operation: { $ref: "#/components/schemas/Operation" }
+
+    AutomationSetting:
+      type: object
+      additionalProperties: false
+      required: [enabled, time]
+      properties:
+        enabled: { type: boolean }
+        time:
+          type: string
+          pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
+        lastRunAt: { type: [string, "null"], format: date-time }
+        lastResult:
+          type: [string, "null"]
+          enum: [delivered, failed, skipped, null]
+        nextRunAt: { type: [string, "null"], format: date-time }
+
+    Settings:
+      type: object
+      additionalProperties: false
+      required: [timezone, knowledgeVaultPath, automations, connections]
+      properties:
+        timezone: { type: string }
+        knowledgeVaultPath: { type: string }
+        location:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            city: { type: string }
+            latitude: { type: number }
+            longitude: { type: number }
+            timezone: { type: string }
+          required: [city, latitude, longitude, timezone]
+        automations:
+          type: object
+          additionalProperties: false
+          required: [briefing, knowledgeDigest]
+          properties:
+            briefing: { $ref: "#/components/schemas/AutomationSetting" }
+            knowledgeDigest: { $ref: "#/components/schemas/AutomationSetting" }
+        connections:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/SourceStatus"
+
+    SettingsResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [settings]
+          properties:
+            settings: { $ref: "#/components/schemas/Settings" }
+
+    UpdateSettingsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        timezone: { type: string }
+        knowledgeVaultPath: { type: string, minLength: 1 }
+        location:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            city: { type: string }
+            latitude: { type: number, minimum: -90, maximum: 90 }
+            longitude: { type: number, minimum: -180, maximum: 180 }
+            timezone: { type: string }
+          required: [city, latitude, longitude, timezone]
+        briefing:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            time:
+              type: string
+              pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
+        knowledgeDigest:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled: { type: boolean }
+            time:
+              type: string
+              pattern: "^([01]\\d|2[0-3]):[0-5]\\d$"
+
+    SearchResult:
+      type: object
+      additionalProperties: false
+      required: [type, id, title, source]
+      properties:
+        type:
+          type: string
+          enum: [paper, task, idea, lecture]
+        id: { type: string }
+        title: { type: string }
+        source: { type: string }
+        snippet: { type: [string, "null"] }
+        openTarget: { type: [string, "null"] }
+
+    SearchResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [query, items]
+          properties:
+            query: { type: string }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/SearchResult" }
+
+    AgentMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        conversationId: { type: [string, "null"] }
+        message: { type: string, minLength: 1, maxLength: 20000 }
+
+    AgentReference:
+      type: object
+      additionalProperties: false
+      required: [type, id, title]
+      properties:
+        type:
+          type: string
+          enum: [paper, task, idea, lecture, approval]
+        id: { type: string }
+        title: { type: string }
+
+    AgentMessageResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [conversationId, answer, references]
+          properties:
+            conversationId: { type: string }
+            answer: { type: string }
+            references:
+              type: array
+              items: { $ref: "#/components/schemas/AgentReference" }

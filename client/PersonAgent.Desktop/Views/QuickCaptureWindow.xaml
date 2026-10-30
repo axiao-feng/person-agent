@@ -1,0 +1,133 @@
+<Window x:Class="PersonAgent.Desktop.Views.QuickCaptureWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="快速记录"
+        Width="560"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource Brush.Window}"
+        FontFamily="{StaticResource Font.UI}"
+        FontSize="13"
+        Foreground="{StaticResource Brush.Text}">
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TabControl x:Name="CaptureTabs" Grid.Row="0" Margin="0,0,0,12">
+            <TabItem Header="Idea">
+                <StackPanel Margin="4,12,4,4">
+                    <TextBlock Text="标题（可选）" Style="{StaticResource MutedText}" />
+                    <TextBox x:Name="IdeaTitleTextBox" AutomationProperties.AutomationId="IdeaTitle" Height="32" Margin="0,4,0,10" VerticalContentAlignment="Center" />
+                    <TextBlock Text="正文（必填）" Style="{StaticResource MutedText}" />
+                    <TextBox x:Name="IdeaBodyTextBox" AutomationProperties.AutomationId="IdeaBody" Height="120" Margin="0,4,0,10"
+                             AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
+                    <TextBlock Text="标签（用逗号分隔，可选）" Style="{StaticResource MutedText}" />
+                    <TextBox x:Name="IdeaTagsTextBox" AutomationProperties.AutomationId="IdeaTags" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center" />
+                </StackPanel>
+            </TabItem>
+
+            <TabItem Header="任务">
+                <StackPanel Margin="4,12,4,4">
+                    <TextBlock Text="标题（必填）" Style="{StaticResource MutedText}" />
+                    <TextBox x:Name="TaskTitleTextBox" AutomationProperties.AutomationId="TaskTitle" Height="32" Margin="0,4,0,10" VerticalContentAlignment="Center" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="类型" Style="{StaticResource MutedText}" />
+                            <ComboBox x:Name="TaskKindComboBox" Height="32" Margin="0,4,0,10">
+                                <ComboBoxItem Content="科研任务" />
+                                <ComboBoxItem Content="作业" />
+                                <ComboBoxItem Content="其他" />
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="优先级" Style="{StaticResource MutedText}" />
+                            <ComboBox x:Name="TaskPriorityComboBox" Height="32" Margin="0,4,0,10">
+                                <ComboBoxItem Content="低" />
+                                <ComboBoxItem Content="中" />
+                                <ComboBoxItem Content="高" />
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="预计耗时（分钟，5–1440）" Style="{StaticResource MutedText}" />
+                    <TextBox x:Name="TaskMinutesTextBox" AutomationProperties.AutomationId="TaskMinutes" Height="32" Margin="0,4,0,10" VerticalContentAlignment="Center" />
+                    <TextBlock Text="截止时间（可选）" Style="{StaticResource MutedText}" />
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="90" />
+                        </Grid.ColumnDefinitions>
+                        <DatePicker x:Name="TaskDeadlineDatePicker" Grid.Column="0" Height="32" SelectedDateFormat="Short" />
+                        <TextBox x:Name="TaskDeadlineTimeTextBox" Grid.Column="2" Height="32" VerticalContentAlignment="Center"
+                                 ToolTip="HH:mm，留空默认 18:00" />
+                    </Grid>
+                </StackPanel>
+            </TabItem>
+
+            <TabItem Header="讲座">
+                <StackPanel Margin="4,12,4,4">
+                    <TextBlock Text="标题（必填）" Style="{StaticResource MutedText}" />
+                    <TextBox x:Name="LectureTitleTextBox" AutomationProperties.AutomationId="LectureTitle" Height="32" Margin="0,4,0,10" VerticalContentAlignment="Center" />
+                    <TextBlock Text="开始时间（必填）" Style="{StaticResource MutedText}" />
+                    <Grid Margin="0,4,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="90" />
+                        </Grid.ColumnDefinitions>
+                        <DatePicker x:Name="LectureStartDatePicker" Grid.Column="0" Height="32" SelectedDateFormat="Short" />
+                        <TextBox x:Name="LectureStartTimeTextBox" Grid.Column="2" Height="32" VerticalContentAlignment="Center"
+                                 ToolTip="HH:mm" />
+                    </Grid>
+                    <TextBlock Text="结束时间（可选）" Style="{StaticResource MutedText}" />
+                    <Grid Margin="0,4,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="90" />
+                        </Grid.ColumnDefinitions>
+                        <DatePicker x:Name="LectureEndDatePicker" Grid.Column="0" Height="32" SelectedDateFormat="Short" />
+                        <TextBox x:Name="LectureEndTimeTextBox" Grid.Column="2" Height="32" VerticalContentAlignment="Center"
+                                 ToolTip="HH:mm，留空默认 18:00" />
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="地点" Style="{StaticResource MutedText}" />
+                            <TextBox x:Name="LectureLocationTextBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="主讲人" Style="{StaticResource MutedText}" />
+                            <TextBox x:Name="LectureSpeakerTextBox" Height="32" Margin="0,4,0,0" VerticalContentAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="备注" Style="{StaticResource MutedText}" Margin="0,10,0,0" />
+                    <TextBox x:Name="LectureNotesTextBox" Height="60" Margin="0,4,0,8"
+                             AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
+                    <CheckBox x:Name="RequiresPresentationCheckBox" Content="本次活动需要汇报" />
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <TextBlock x:Name="ErrorText" Grid.Row="1" Foreground="{StaticResource Brush.Red}"
+                   TextWrapping="Wrap" Margin="2,0,2,10" Visibility="Collapsed" />
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="取消" Style="{StaticResource ToolButton}" Margin="0,0,8,0" Click="Cancel_Click" />
+            <Button x:Name="SaveButton" AutomationProperties.AutomationId="QuickSave" Content="保存" Style="{StaticResource ToolButton}" Click="Save_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

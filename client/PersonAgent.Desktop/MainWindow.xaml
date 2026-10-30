@@ -1,0 +1,273 @@
+<Window x:Class="PersonAgent.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:vm="clr-namespace:PersonAgent.Desktop.ViewModels"
+        xmlns:views="clr-namespace:PersonAgent.Desktop.Views"
+        mc:Ignorable="d"
+        Title="Person Agent"
+        Width="1320"
+        Height="820"
+        MinWidth="1100"
+        MinHeight="700"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Brush.Window}"
+        FontFamily="{StaticResource Font.UI}"
+        FontSize="13"
+        Foreground="{StaticResource Brush.Text}"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Closing="Window_Closing">
+    <Window.InputBindings>
+        <KeyBinding Key="K" Modifiers="Control" Command="{Binding ShowCommandPaletteCommand}" />
+        <KeyBinding Key="Escape" Command="{Binding CloseDetailCommand}" />
+        <KeyBinding Key="F5" Command="{Binding RefreshCurrentCommand}" />
+    </Window.InputBindings>
+
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type vm:TodayViewModel}">
+            <views:TodayView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:KnowledgeViewModel}">
+            <views:KnowledgeView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TasksViewModel}">
+            <views:TasksView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:CalendarViewModel}">
+            <views:CalendarView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+            <views:SettingsView />
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="30" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource Brush.Surface}"
+                BorderBrush="{StaticResource Brush.Border}" BorderThickness="0,0,0,1">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Person Agent" FontSize="15" FontWeight="SemiBold" />
+                    <TextBlock Text="研究生活工作台" Style="{StaticResource MutedText}" Margin="10,2,0,0"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <Button Grid.Column="1" HorizontalAlignment="Left" Width="420" Margin="28,0"
+                        Style="{StaticResource ToolButton}"
+                        Command="{Binding ShowCommandPaletteCommand}"
+                        Content="搜索 / 问 Agent（Ctrl+K）"
+                        HorizontalContentAlignment="Left"
+                        Foreground="{StaticResource Brush.TextMuted}"
+                        ToolTip="搜索论文、任务、Idea 和讲座，或向 Agent 提问" />
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="快速记录" Style="{StaticResource ToolButton}"
+                            Command="{Binding QuickCaptureCommand}" Margin="0,0,8,0"
+                            ToolTip="记录 Idea、任务或讲座" />
+                    <Button Style="{StaticResource ToolButton}"
+                            Command="{Binding ShowApprovalsCommand}"
+                            ToolTip="查看待审批的 Calendar 操作">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Today.NotificationText}" VerticalAlignment="Center" />
+                            <Border Width="7" Height="7" CornerRadius="3.5" Margin="6,0,0,0"
+                                    Background="{StaticResource Brush.Orange}"
+                                    Visibility="{Binding Today.HasApprovals, Converter={StaticResource BoolToVisibility}}" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Width="196" Background="{StaticResource Brush.Nav}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="18,18,18,12">
+                        <TextBlock Text="Person Agent" Style="{StaticResource SidebarBrand}" />
+                        <TextBlock Text="本地研究工作台" Style="{StaticResource SidebarCaption}" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Bottom" Text="本地优先 · 外部写入需审批" Style="{StaticResource SidebarCaption}"
+                               Margin="18,0,18,16" TextWrapping="Wrap" />
+                    <ListBox Style="{StaticResource NavListBox}"
+                             ItemsSource="{Binding Sections}"
+                             SelectedItem="{Binding SelectedSection}"
+                             DisplayMemberPath="Title"
+                             Margin="0,6,0,0" />
+                </DockPanel>
+            </Border>
+
+            <ContentControl Grid.Column="1" Content="{Binding ActivePage}"
+                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+
+            <Border Grid.Column="2" Width="350" Background="{StaticResource Brush.Surface}"
+                    BorderBrush="{StaticResource Brush.Border}" BorderThickness="1,0,0,0"
+                    Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibility}}">
+                <DockPanel Margin="18,18,18,18">
+                    <Grid DockPanel.Dock="Top">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <TextBlock Text="{Binding SelectedDetail.KindText}" Style="{StaticResource MutedText}" />
+                            <TextBlock Text="{Binding SelectedDetail.Title}" FontSize="17" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding SelectedDetail.StatusText}" Style="{StaticResource MutedText}"
+                                       Foreground="{StaticResource Brush.Accent}" Margin="0,4,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="关闭" Style="{StaticResource ToolButton}"
+                                Command="{Binding CloseDetailCommand}" VerticalAlignment="Top" />
+                    </Grid>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0"
+                                Visibility="{Binding SelectedDetail.IsApproval, Converter={StaticResource BoolToVisibility}}">
+                        <Button Content="批准并写入 Google Calendar" Style="{StaticResource ToolButton}"
+                                Command="{Binding Today.ApproveSelectedCommand}" Margin="0,0,0,6" />
+                        <Button Content="拒绝" Style="{StaticResource ToolButton}"
+                                Command="{Binding Today.RejectSelectedCommand}" Margin="0,0,0,6" />
+                        <TextBlock Text="{Binding Today.ActionMessage}" TextWrapping="Wrap"
+                                   Visibility="{Binding Today.HasActionMessage, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource Brush.Green}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Today.IsActionError}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.Red}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0"
+                                Visibility="{Binding Tasks.HasDetail, Converter={StaticResource BoolToVisibility}}">
+                        <WrapPanel>
+                            <Button Content="开始" Style="{StaticResource ToolButton}"
+                                    Command="{Binding Tasks.StartCommand}" Margin="0,0,6,6"
+                                    Visibility="{Binding Tasks.SelectedDetail.CanStart, Converter={StaticResource BoolToVisibility}}" />
+                            <Button Content="完成" Style="{StaticResource ToolButton}"
+                                    Command="{Binding Tasks.CompleteCommand}" Margin="0,0,6,6"
+                                    Visibility="{Binding Tasks.SelectedDetail.CanComplete, Converter={StaticResource BoolToVisibility}}" />
+                            <Button Content="取消" Style="{StaticResource ToolButton}"
+                                    Command="{Binding Tasks.CancelCommand}" Margin="0,0,6,6"
+                                    Visibility="{Binding Tasks.SelectedDetail.CanCancel, Converter={StaticResource BoolToVisibility}}" />
+                            <Button Content="找空闲时段" Style="{StaticResource ToolButton}"
+                                    Command="{Binding Tasks.FindSlotsCommand}" Margin="0,0,6,6"
+                                    Visibility="{Binding Tasks.SelectedDetail.CanSchedule, Converter={StaticResource BoolToVisibility}}" />
+                            <Button Content="编辑" Style="{StaticResource ToolButton}"
+                                    Command="{Binding Tasks.EditCommand}" Margin="0,0,6,6"
+                                    Visibility="{Binding Tasks.SelectedDetail.CanEdit, Converter={StaticResource BoolToVisibility}}" />
+                        </WrapPanel>
+                        <TextBlock Text="{Binding Tasks.SlotMessage}" Style="{StaticResource MutedText}" TextWrapping="Wrap"
+                                   Margin="0,2,0,4"
+                                   Visibility="{Binding Tasks.HasSlotMessage, Converter={StaticResource BoolToVisibility}}" />
+                        <ItemsControl ItemsSource="{Binding Tasks.Slots}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource RowButton}"
+                                            Command="{Binding DataContext.Tasks.ScheduleSlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Margin="0,0,0,3">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding TimeText}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding DurationText}" Style="{StaticResource MutedText}" />
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding Tasks.ActionMessage}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Visibility="{Binding Tasks.HasActionMessage, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource Brush.Green}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Tasks.IsActionError}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource Brush.Red}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Bottom" Background="{StaticResource Brush.OrangeSoft}"
+                            BorderBrush="#F0D3AE" BorderThickness="1" CornerRadius="8" Padding="12,9"
+                            Margin="0,14,0,0"
+                            Visibility="{Binding SelectedDetail.HasNote, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="{Binding SelectedDetail.Note}"
+                                   Foreground="{StaticResource Brush.Orange}" TextWrapping="Wrap" FontSize="12" />
+                    </Border>
+
+                    <ItemsControl ItemsSource="{Binding SelectedDetail.Rows}" Margin="0,16,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,11">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="78" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Label}" Style="{StaticResource MutedText}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Background="{StaticResource Brush.Surface}"
+                BorderBrush="{StaticResource Brush.Border}" BorderThickness="0,1,0,0">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="8" Height="8" CornerRadius="4" Margin="0,0,8,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource Brush.Orange}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsServiceConnected}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource Brush.Green}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                    <TextBlock Text="{Binding ServiceStatusText}" Style="{StaticResource MutedText}" />
+                    <TextBlock Text="  ·  " Style="{StaticResource MutedText}" />
+                    <TextBlock Text="{Binding WorkerStatusText}" Style="{StaticResource MutedText}" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding Today.UpdatedText}" Style="{StaticResource MutedText}"
+                           VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
