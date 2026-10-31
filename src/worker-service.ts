@@ -31,11 +31,11 @@ export function installWorkerTask(
   const command = `"${workerNodePath()}" "${cliPath}" worker run`;
   commands.schtasks(["/Create", "/F", "/SC", "ONLOGON", "/TN", TASK_NAME, "/TR", command, "/RL", "LIMITED"]);
   commands.powershell(`
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Set-ScheduledTask -TaskName '${TASK_NAME}' -Settings $settings | Out-Null
-$task = Get-ScheduledTask -TaskName '${TASK_NAME}'
-$task.Triggers[0].Delay = 'PT2M'
-$task | Set-ScheduledTask | Out-Null
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+$logon = New-ScheduledTaskTrigger -AtLogOn
+$logon.Delay = 'PT2M'
+$repeat = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 5)
+Set-ScheduledTask -TaskName '${TASK_NAME}' -Trigger @($logon, $repeat) -Settings $settings | Out-Null
 `);
   startWorkerTask(commands, cliPath);
   return `已安装并启动登录自启动任务：${TASK_NAME}`;
@@ -66,7 +66,27 @@ $state
 
 export function workerTaskStatus(commands: WorkerTaskCommands = defaultCommands): string {
   requireWindows();
-  return commands.schtasks(["/Query", "/TN", TASK_NAME, "/FO", "LIST", "/V"]);
+  let info: ScheduledTaskInfo;
+  try {
+    info = readTaskInfo(commands);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "未知错误";
+    return `任务：${TASK_NAME}\n状态：无法读取（${message}）`;
+  }
+  if (!info.installed) return `任务：${TASK_NAME}\n状态：未安装`;
+  const running = info.state === "Running" || info.state === "Queued";
+  const lines = [
+    `任务：${TASK_NAME}`,
+    `状态：${running ? "运行中" : "已停止"}（${info.state ?? "Unknown"}）`,
+  ];
+  // A 5-minute trigger refused by IgnoreNew updates LastTaskResult even though
+  // the existing worker is healthy, so only show history while stopped.
+  if (!running) {
+    if (info.lastRunAt) lines.push(`上次运行：${formatTaskTime(info.lastRunAt)}`);
+    if (info.lastResult !== null) lines.push(`上次结果：${formatTaskResult(info.lastResult)}`);
+  }
+  if (info.nextRunAt) lines.push(`下次运行：${formatTaskTime(info.nextRunAt)}`);
+  return lines.join("\n");
 }
 
 /**
@@ -77,16 +97,16 @@ export function workerTaskStatus(commands: WorkerTaskCommands = defaultCommands)
 export function workerTaskHealth(commands: WorkerTaskCommands = defaultCommands): WorkerRuntimeHealth {
   if (process.platform !== "win32") return { state: "unknown", lastRunAt: null };
   try {
-    const output = commands.powershell(HEALTH_SCRIPT).trim();
-    const value = JSON.parse(output) as { state?: unknown; lastRunAt?: unknown };
-    if (value.state !== "running" && value.state !== "stopped" && value.state !== "not_installed") {
-      return { state: "unknown", lastRunAt: null };
-    }
-    const lastRun = typeof value.lastRunAt === "string" ? new Date(value.lastRunAt) : undefined;
-    return {
-      state: value.state,
-      lastRunAt: lastRun && !Number.isNaN(lastRun.getTime()) ? lastRun.toISOString() : null,
-    };
+    const info = readTaskInfo(commands);
+    if (!info.installed) return { state: "not_installed", lastRunAt: null };
+    if (info.state === null) return { state: "unknown", lastRunAt: null };
+    const state: WorkerRuntimeState =
+      info.state === "Running" || info.state === "Queued"
+        ? "running"
+        : info.state === "Unknown"
+          ? "unknown"
+          : "stopped";
+    return { state, lastRunAt: info.lastRunAt };
   } catch {
     return { state: "unknown", lastRunAt: null };
   }
@@ -140,27 +160,77 @@ function runPowerShell(script: string): string {
   return (result.stdout ?? "").trim();
 }
 
-const HEALTH_SCRIPT = String.raw`
+type ScheduledTaskInfo = {
+  installed: boolean;
+  state: string | null;
+  lastRunAt: string | null;
+  lastResult: number | null;
+  nextRunAt: string | null;
+};
+
+function readTaskInfo(commands: WorkerTaskCommands): ScheduledTaskInfo {
+  const output = commands.powershell(TASK_INFO_SCRIPT).trim();
+  const value = JSON.parse(output) as {
+    installed?: unknown;
+    state?: unknown;
+    lastRunAt?: unknown;
+    lastResult?: unknown;
+    nextRunAt?: unknown;
+  };
+  return {
+    installed: value.installed === true,
+    state: typeof value.state === "string" ? value.state : null,
+    lastRunAt: isoDateOrNull(value.lastRunAt),
+    lastResult:
+      typeof value.lastResult === "number" && Number.isFinite(value.lastResult)
+        ? value.lastResult
+        : null,
+    nextRunAt: isoDateOrNull(value.nextRunAt),
+  };
+}
+
+function isoDateOrNull(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+function formatTaskTime(value: string): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(new Date(value));
+}
+
+function formatTaskResult(value: number): string {
+  return `0x${(value >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
+}
+
+const TASK_INFO_SCRIPT = String.raw`
 $task = Get-ScheduledTask -TaskName 'Person Agent' -ErrorAction SilentlyContinue
 if (-not $task) {
-  '{"state":"not_installed","lastRunAt":null}'
+  '{"installed":false}'
 } else {
-  $state = [string]$task.State
   $lastRun = $null
+  $nextRun = $null
+  $lastResult = $null
   try {
     $info = Get-ScheduledTaskInfo -TaskName 'Person Agent' -ErrorAction Stop
     if ($info.LastRunTime -and $info.LastRunTime.Year -gt 2000) {
       $lastRun = $info.LastRunTime.ToString('o')
     }
+    if ($info.NextRunTime -and $info.NextRunTime.Year -gt 2000) {
+      $nextRun = $info.NextRunTime.ToString('o')
+    }
+    $lastResult = [long]$info.LastTaskResult
   } catch {}
-  if ($state -eq 'Running' -or $state -eq 'Queued') {
-    $mapped = 'running'
-  } elseif ($state -eq 'Unknown') {
-    $mapped = 'unknown'
-  } else {
-    $mapped = 'stopped'
-  }
-  @{ state = $mapped; lastRunAt = $lastRun } | ConvertTo-Json -Compress
+  @{
+    installed = $true
+    state = [string]$task.State
+    lastRunAt = $lastRun
+    lastResult = $lastResult
+    nextRunAt = $nextRun
+  } | ConvertTo-Json -Compress
 }
 `;
 

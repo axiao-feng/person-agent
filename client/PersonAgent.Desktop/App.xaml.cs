@@ -42,16 +42,6 @@ public partial class App : Application
             }
 
             _singleInstance.CommandReceived += OnCommandReceived;
-            try
-            {
-                DesktopRegistration.Register();
-                LogEvent("desktop_registered");
-            }
-            catch (Exception registrationError)
-            {
-                // Deep links are optional; the rest of the client must still start.
-                LogError(registrationError);
-            }
 
             _viewModel = new MainViewModel();
             var window = new MainWindow { DataContext = _viewModel };
@@ -59,6 +49,7 @@ public partial class App : Application
             window.Show();
             await _viewModel.InitializeAsync();
             _initialized = true;
+            RegisterDesktop();
 
             if (startupLink is not null)
             {
@@ -111,6 +102,30 @@ public partial class App : Application
                 LogError(error);
             }
         });
+    }
+
+    private void RegisterDesktop()
+    {
+        TryRegisterDesktop(null);
+        var serviceHome = _viewModel?.AppHome;
+        if (!string.IsNullOrWhiteSpace(serviceHome))
+        {
+            TryRegisterDesktop(serviceHome);
+        }
+    }
+
+    private void TryRegisterDesktop(string? home)
+    {
+        try
+        {
+            var path = DesktopRegistration.Register(home);
+            LogEvent($"desktop_registered:{path}");
+        }
+        catch (Exception error)
+        {
+            // Deep links are optional; the rest of the client must still start.
+            LogError(error);
+        }
     }
 
     private async Task OpenLinkAsync(DeepLink link)

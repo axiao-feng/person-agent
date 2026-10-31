@@ -12,18 +12,26 @@ public sealed class BackendSession : IAsyncDisposable
     private readonly StringBuilder _stderr;
     private bool _disposed;
 
-    internal BackendSession(Process process, int port, string token, StringBuilder stderr, string launchDescription)
+    internal BackendSession(
+        Process process,
+        int port,
+        string token,
+        StringBuilder stderr,
+        string launchDescription,
+        string? appHome)
     {
         _process = process;
         Port = port;
         Token = token;
         _stderr = stderr;
         LaunchDescription = launchDescription;
+        AppHome = string.IsNullOrWhiteSpace(appHome) ? null : appHome;
     }
 
     public int Port { get; }
     public string Token { get; }
     public string LaunchDescription { get; }
+    public string? AppHome { get; }
 
     public string Diagnostics
     {
@@ -161,7 +169,7 @@ public static class BackendLauncher
                     $"本地服务协议版本 {ready.ProtocolVersion} 与客户端不兼容（需要 1）。请更新客户端或本地服务。");
             }
             _ = Task.Run(() => DrainAsync(process.StandardOutput));
-            return new BackendSession(process, ready.Port, token, stderr, plan.Description);
+            return new BackendSession(process, ready.Port, token, stderr, plan.Description, ready.Home);
         }
         catch (Exception error)
         {
@@ -350,5 +358,6 @@ public static class BackendLauncher
         public string Event { get; set; } = "";
         public int Port { get; set; }
         public string ProtocolVersion { get; set; } = "";
+        public string? Home { get; set; }
     }
 }

@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   desktopExecutable,
+  desktopRegistrationRoots,
   notificationActionLabel,
   notificationLaunch,
 } from "../src/notifications.js";
@@ -42,7 +43,7 @@ test("notification deep links resolve the registered client and reject stale pat
     mkdirSync(home);
     writeFileSync(
       join(home, "desktop.json"),
-      JSON.stringify({ executable, version: "0.3.0.0" }),
+      JSON.stringify({ executable, version: "0.3.1.0" }),
       "utf8",
     );
     assert.equal(
@@ -55,6 +56,48 @@ test("notification deep links resolve the registered client and reject stale pat
       desktopExecutable({ PERSON_AGENT_HOME: home } as NodeJS.ProcessEnv),
       undefined,
       "a stale registration must hide the deep-link button",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("notification discovery falls back to the standard LocalAppData registration", () => {
+  const root = mkdtempSync(join(tmpdir(), "person-agent-notification-fallback-"));
+  try {
+    const workerHome = join(root, "worker-home");
+    const localAppData = join(root, "local-app-data");
+    const standardHome = join(localAppData, "person-agent");
+    const executable = join(root, "PersonAgent.Desktop.exe");
+    mkdirSync(workerHome);
+    mkdirSync(standardHome, { recursive: true });
+    writeFileSync(executable, "stub", "utf8");
+    writeFileSync(
+      join(standardHome, "desktop.json"),
+      JSON.stringify({ executable }),
+      "utf8",
+    );
+    const environment = {
+      PERSON_AGENT_HOME: workerHome,
+      LOCALAPPDATA: localAppData,
+    } as NodeJS.ProcessEnv;
+    assert.deepEqual(desktopRegistrationRoots(environment), [
+      workerHome,
+      standardHome,
+    ]);
+    assert.equal(desktopExecutable(environment), executable);
+
+    const workerExecutable = join(root, "Worker.PersonAgent.Desktop.exe");
+    writeFileSync(workerExecutable, "stub", "utf8");
+    writeFileSync(
+      join(workerHome, "desktop.json"),
+      JSON.stringify({ executable: workerExecutable }),
+      "utf8",
+    );
+    assert.equal(
+      desktopExecutable(environment),
+      workerExecutable,
+      "the worker home registration wins over the fallback",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

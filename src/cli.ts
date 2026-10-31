@@ -305,6 +305,7 @@ async function serveCommand(paths: AppPaths, args: string[]): Promise<void> {
         event: "ready",
         port: server.port,
         protocolVersion: server.protocolVersion,
+        home: paths.root,
       })}\n`,
     );
     await waitForServiceShutdown(server);

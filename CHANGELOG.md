@@ -1,5 +1,38 @@
 # 更新日志
 
+## v0.3.1 — 2026-10-31
+
+修复 v0.3.0 验收发现的通知深链与后台任务问题。
+
+### 修复
+
+**通知深链跨进程目录**
+- `serve` 的就绪消息新增 `home` 字段，返回后台服务实际使用的应用目录（已加载仓库 `.env`）。
+- WPF 客户端在后台启动后，把 `desktop.json` 同时写入服务实际目录和 `%LOCALAPPDATA%\person-agent`；不再只依赖客户端进程环境。
+- worker 查找登记文件时先查自身应用目录，再回退到标准 LocalAppData 目录；任一登记路径可执行文件失效时继续尝试下一个。
+- 修复了之前 `.env` 设置 `PERSON_AGENT_HOME=D:\person-agent\.data` 而客户端登记到 LocalAppData 导致通知按钮消失的问题。
+
+**后台任务持续运行**
+- 计划任务改为“登录触发 + 每 5 分钟重复触发”；`IgnoreNew` 防止重复实例，进程意外退出后最多 5 分钟自动恢复。
+- `worker status` 不再直接输出本地化的 `schtasks` 文本，改为结构化状态、上次运行时间和上次结果（如 `0xC000013A`），解决中文 Windows 乱码。
+- 本机已重新执行 `worker install`，任务当前为 Running，重复触发间隔 5 分钟。
+
+**测试**
+- 新增 `client/PersonAgent.Desktop.Tests` 合同测试（4 项），覆盖深链参数、协议 URI、单实例 payload 和客户端登记文件。
+- 新增通知目录回退、服务就绪目录、worker 重复触发和状态格式测试。
+
+### 验证
+
+- `node --import tsx --test test/*.test.ts`：78 项通过。
+- `pnpm test:desktop`：4 项通过。
+- TypeScript 类型检查、构建通过；WPF Debug 构建 0 警告 0 错误。
+- 实测正常启动客户端（无 `PERSON_AGENT_HOME` 环境变量）后，`.data` 和 LocalAppData 均生成 `desktop.json`；worker 环境可解析到客户端 exe。
+- 实测 `worker install` 后任务 Running，触发器中包含 `PT5M` 重复间隔；`worker status` 输出中文可读。
+
+### 升级注意
+
+- 升级后需要重新运行一次 `person-agent worker install`，让计划任务写入每 5 分钟重复触发；当前机器已执行。
+
 ## v0.3.0 — 2026-10-31
 
 完成唯一入口切换，并补齐 Windows 通知深链与审批失败重试/历史。

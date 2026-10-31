@@ -1,6 +1,6 @@
 {
   "name": "person-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local personal assistant powered by pi-agent",
   "type": "module",
@@ -24,7 +24,8 @@
     "dev": "tsx src/cli.ts",
     "eval:agent": "tsx src/eval.ts",
     "start": "node dist/src/cli.js",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File client/PersonAgent.Desktop.Tests/run.ps1"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.86.0",

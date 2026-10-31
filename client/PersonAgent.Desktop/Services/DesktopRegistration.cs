@@ -10,11 +10,20 @@ namespace PersonAgent.Desktop.Services;
 /// </summary>
 public static class DesktopRegistration
 {
-    public static void Register()
+    /// <summary>
+    /// Writes the registration into the supplied app home, or the environment
+    /// default. The backend's ready message is authoritative because it has
+    /// already loaded the repository .env; writing both locations keeps deep
+    /// links working when the worker and client were started differently.
+    /// </summary>
+    public static string Register(string? home = null)
     {
         var executable = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable)) return;
-        var folder = AppHome();
+        if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable))
+        {
+            throw new InvalidOperationException("找不到当前客户端可执行文件，无法登记通知深链。");
+        }
+        var folder = string.IsNullOrWhiteSpace(home) ? AppHome() : home.Trim();
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, "desktop.json");
         var temporary = $"{path}.{Environment.ProcessId}.tmp";
@@ -26,6 +35,7 @@ public static class DesktopRegistration
         };
         File.WriteAllText(temporary, JsonSerializer.Serialize(payload));
         File.Move(temporary, path, overwrite: true);
+        return path;
     }
 
     public static string AppHome()

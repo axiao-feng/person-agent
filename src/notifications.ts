@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { appPaths } from "./paths.js";
 
@@ -83,10 +83,34 @@ export const windowsNotifier: Notifier = async (title, body, action) => {
 export function desktopExecutable(environment: NodeJS.ProcessEnv = process.env): string | undefined {
   const configured = environment.PERSON_AGENT_DESKTOP?.trim();
   if (configured && existsSync(configured)) return configured;
-  const registration = join(appPaths(environment).root, "desktop.json");
-  if (!existsSync(registration)) return undefined;
+  for (const root of desktopRegistrationRoots(environment)) {
+    const executable = readDesktopRegistration(join(root, "desktop.json"));
+    if (executable) return executable;
+  }
+  return undefined;
+}
+
+/**
+ * The worker loads the repository .env, while a normally launched client only
+ * sees the user environment. Check the worker home first, then the standard
+ * LocalAppData home the client also registers to.
+ */
+export function desktopRegistrationRoots(environment: NodeJS.ProcessEnv = process.env): string[] {
+  const roots = [appPaths(environment).root];
+  const localAppData = environment.LOCALAPPDATA?.trim();
+  if (localAppData) {
+    roots.push(join(localAppData, "person-agent"));
+  } else {
+    const appData = environment.APPDATA?.trim();
+    if (appData) roots.push(join(appData, "person-agent"));
+  }
+  return [...new Set(roots.map((root) => resolve(root)))];
+}
+
+function readDesktopRegistration(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
   try {
-    const value = JSON.parse(readFileSync(registration, "utf8")) as { executable?: unknown };
+    const value = JSON.parse(readFileSync(path, "utf8")) as { executable?: unknown };
     if (typeof value.executable === "string" && value.executable.trim()) {
       return existsSync(value.executable) ? value.executable : undefined;
     }

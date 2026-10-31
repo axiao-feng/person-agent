@@ -64,10 +64,12 @@ test("serve announces a ready port and stops when its stdin closes", async () =>
       event: string;
       port: number;
       protocolVersion: string;
+      home: string;
     };
     assert.equal(ready.event, "ready");
     assert.equal(ready.protocolVersion, "1");
     assert.ok(ready.port > 0);
+    assert.equal(ready.home, home);
     assert.equal(readyLine.includes(TOKEN), false);
 
     const response = await fetch(`http://127.0.0.1:${ready.port}/api/health`, {

@@ -127,6 +127,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool HasDetail => SelectedDetail is not null;
 
+    public string? AppHome => _session?.AppHome;
+
     public bool IsConnecting
     {
         get => _isConnecting;
