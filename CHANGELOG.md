@@ -1,5 +1,49 @@
 # 更新日志
 
+## v0.3.0 — 2026-10-31
+
+完成唯一入口切换，并补齐 Windows 通知深链与审批失败重试/历史。
+
+### 新增
+
+**通知深链与单实例**
+- 客户端启动时把自身路径登记到应用目录的 `desktop.json`。
+- Windows 通知新增“打开待审批”“打开今日”“打开日历”按钮；后台任务把审批 ID、讲座 ID 或今日入口随通知一并传递。
+- WPF 客户端保持单实例：再次启动时通过命名管道把 `--approval <ID>` / `--lecture <ID>` / `--today` 转发给已打开的窗口，并自动聚焦对应页面或对象。
+- 通知中的审批深链同时支持 pending 和 failed 记录；找不到对象时显示明确提示。
+
+**审批历史与失败重试**
+- 新增 `GET /api/approvals/history?limit=20`，返回 pending 以外的审批记录，失败记录优先，默认 20 条、最多 50 条。
+- 今日页新增“审批历史”分区，展示执行失败、已执行和已拒绝记录及错误信息。
+- 失败记录可在详情面板中按原 payload 重试写入 Calendar，也可以忽略；执行参数仍由持久化 payload 决定，客户端不能篡改。
+- 审批完成后详情面板会同步刷新最新状态与错误。
+
+**工程**
+- 删除旧 WinForms 启动器、`launcher/`、`demo/` 及其测试与 CLI `launcher install` 命令。
+- README、产品设计、架构和 UI 合同更新为单一 WPF 入口。
+- 版本号更新为 0.3.0（`package.json`、WPF 项目、OpenAPI）。
+
+### 验证
+
+- `node --import tsx --test test/*.test.ts`：76 项通过。
+- TypeScript 类型检查与 `dist` 构建通过。
+- WPF Debug 构建通过，0 警告 0 错误。
+- UI Automation 实测：待审批与失败审批深链均打开对应详情；审批历史显示错误、状态和重试/忽略按钮；通知弹窗按钮可启动客户端并转发深链。
+- 单实例实测：连续启动 3 个带深链的客户端实例均在约 1 秒内退出，主窗口收到 `deep_link_received` 与 `deep_link_opening` 事件。
+- 失败重试实测：在未配置 Google 的环境中点击“重试写入”，客户端调用审批接口后正确显示“Google 尚未连接”并把记录保留为 failed。
+
+### 升级注意
+
+- `person-agent launcher install` 已移除。已创建的旧桌面/开始菜单快捷方式需要手动删除，改为启动 `client/PersonAgent.Desktop`；旧 `launcher/bin/` 可由用户自行清理。
+- 通知深链需要至少启动一次新客户端以写入 `desktop.json`；若客户端未登记或可执行文件不存在，通知只显示文字说明，不显示打开按钮。
+- 运行 WPF 客户端仍需要 .NET 8 Desktop Runtime；仓库内 `.dotnet` 仅用于本地构建和验证。
+
+### 已知限制
+
+- 125%–200% DPI 的逐档视觉验收、Windows 11 焦点/对比度检查尚未完成。
+- 发布方式（MSIX 或传统安装器）与升级/回滚/备份手册尚未确定。
+- 验证未对真实 Google 执行外部写入；失败重试路径在未配置 Google 的环境中验证，成功重试由注入的 fake executor 自动化测试覆盖。
+
 ## v0.2.0 — 2026-10-30
 
 首个可日常使用的 Windows 原生客户端版本。

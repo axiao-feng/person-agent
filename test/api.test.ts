@@ -350,6 +350,48 @@ test("rejected approvals cannot be approved later", async () => {
   });
 });
 
+test("approval history lists failed actions first and failed actions can be retried", async () => {
+  await withApi(async (api) => {
+    const failed = api.fixture.database.stageWorkflowAction(
+      "calendar.create",
+      {
+        title: "需要重试的任务",
+        startAt: "2026-10-30T09:00:00.000Z",
+        endAt: "2026-10-30T10:00:00.000Z",
+        taskId: api.fixture.draftTaskId,
+      },
+      NOW,
+    );
+    api.fixture.database.approveWorkflowAction(failed.id, NOW);
+    api.fixture.database.failWorkflowAction(failed.id, "Calendar 暂时不可用。");
+
+    const history = await api.get("/api/approvals/history?limit=10");
+    assert.equal(history.status, 200);
+    const historyBody = (await history.json()) as { items: Approval[] };
+    assert.equal(historyBody.items.length, 1);
+    assert.equal(historyBody.items[0]?.id, failed.id);
+    assert.equal(historyBody.items[0]?.status, "failed");
+    assert.equal(historyBody.items[0]?.error, "Calendar 暂时不可用。");
+    assert.equal(
+      historyBody.items.some((item) => item.id === api.fixture.actionId),
+      false,
+      "pending actions stay in the approval queue rather than history",
+    );
+
+    const retried = await api.send(`/api/approvals/${failed.id}/approve`, "POST");
+    assert.equal(retried.status, 200);
+    assert.equal(((await retried.json()) as { approval: Approval }).approval.status, "executed");
+    assert.equal(api.fixture.createdEvents.length, 1);
+
+    const limited = await api.get("/api/approvals/history?limit=1");
+    assert.equal(limited.status, 200);
+    assert.equal(((await limited.json()) as { items: Approval[] }).items.length, 1);
+
+    const invalid = await api.get("/api/approvals/history?limit=0");
+    assert.equal(invalid.status, 422);
+  });
+});
+
 type ApiFixture = {
   baseUrl: string;
   token: string;

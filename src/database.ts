@@ -728,6 +728,24 @@ export class AppDatabase {
     return (rows as Row[]).map(parseWorkflowAction);
   }
 
+  /** Retryable failures first, then the most recent completed or rejected records. */
+  listApprovalHistory(limit = 20): WorkflowAction[] {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM workflow_actions
+         WHERE status != 'pending'
+         ORDER BY CASE status
+           WHEN 'failed' THEN 0
+           WHEN 'approved' THEN 1
+           WHEN 'executing' THEN 2
+           ELSE 3
+         END, created_at DESC
+         LIMIT ?`,
+      )
+      .all(limit);
+    return (rows as Row[]).map(parseWorkflowAction);
+  }
+
   claimWorkflowAction(id: string, kind: WorkflowActionKind, payload: Record<string, unknown>): WorkflowAction {
     const action = this.getWorkflowActionRequired(id);
     if (action.kind !== kind || JSON.stringify(action.payload) !== JSON.stringify(payload)) {

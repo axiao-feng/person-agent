@@ -317,6 +317,82 @@
                     </ItemsControl>
                 </StackPanel>
 
+                <StackPanel Margin="0,0,0,22"
+                            Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="审批历史" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Text="失败记录可以重试；已执行或已拒绝记录仅用于追溯。"
+                               Style="{StaticResource MutedText}" Margin="0,-4,0,8" />
+                    <ItemsControl ItemsSource="{Binding History}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Style="{StaticResource RowButton}"
+                                        Command="{Binding DataContext.SelectItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Margin="0,0,0,8">
+                                    <Border BorderThickness="1" CornerRadius="8" Padding="14,10">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{StaticResource Brush.SurfaceAlt}" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource Brush.Border}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding StatusKey}" Value="failed">
+                                                        <Setter Property="Background" Value="{StaticResource Brush.RedSoft}" />
+                                                        <Setter Property="BorderBrush" Value="#F0C4C0" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding StatusKey}" Value="executed">
+                                                        <Setter Property="Background" Value="{StaticResource Brush.GreenSoft}" />
+                                                        <Setter Property="BorderBrush" Value="#C9E5D6" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                                <TextBlock Text="{Binding Target}" FontSize="12"
+                                                           Foreground="{StaticResource Brush.TextMuted}" />
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Margin="0,2,0,0"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                    <TextBlock Text="{Binding ProposedText}" Style="{StaticResource MutedText}" />
+                                                    <TextBlock Text=" · " Style="{StaticResource MutedText}" />
+                                                    <TextBlock Text="{Binding CreatedText}" Style="{StaticResource MutedText}" />
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding ErrorText}" Foreground="{StaticResource Brush.Red}"
+                                                           TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0"
+                                                           Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding StatusText}" FontSize="12"
+                                                           HorizontalAlignment="Right">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource Brush.TextMuted}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding StatusKey}" Value="failed">
+                                                                    <Setter Property="Foreground" Value="{StaticResource Brush.Red}" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding StatusKey}" Value="executed">
+                                                                    <Setter Property="Foreground" Value="{StaticResource Brush.Green}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Text="查看详情" FontSize="12" Style="{StaticResource MutedText}"
+                                                           HorizontalAlignment="Right" Opacity="0.8" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

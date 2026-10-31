@@ -63,6 +63,7 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
     public ObservableCollection<TimelineItemViewModel> TimelineItems { get; } = new();
     public ObservableCollection<KnowledgeItemViewModel> KnowledgeItems { get; } = new();
     public ObservableCollection<ApprovalViewModel> Approvals { get; } = new();
+    public ObservableCollection<ApprovalViewModel> History { get; } = new();
 
     public ICommand RefreshCommand { get; }
     public ICommand RetryCommand { get; }
@@ -197,7 +198,8 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
     public bool HasTimeline => TimelineItems.Count > 0;
     public bool HasKnowledge => KnowledgeItems.Count > 0;
     public bool HasApprovals => Approvals.Count > 0;
-    public bool IsEmpty => HasData && !HasFocus && !HasTimeline && !HasKnowledge && !HasApprovals;
+    public bool HasHistory => History.Count > 0;
+    public bool IsEmpty => HasData && !HasFocus && !HasTimeline && !HasKnowledge && !HasApprovals && !HasHistory;
     public int PendingApprovalCount => Approvals.Count;
     public string NotificationText => PendingApprovalCount > 0 ? $"通知 · {PendingApprovalCount}" : "通知";
 
@@ -223,6 +225,7 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         {
             var response = await client.GetTodayAsync();
             Apply(response);
+            await LoadHistoryAsync(client);
         }
         catch (Exception error)
         {
@@ -261,25 +264,47 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         if (Approvals.Count > 0)
         {
             SelectedDetail = DetailViewModel.FromApproval(Approvals[0]);
+            return;
         }
-        else
+        var failed = History.FirstOrDefault(item => item.Approval.Status == "failed");
+        if (failed is not null)
         {
             IsActionError = false;
-            ActionMessage = "当前没有待审批操作。";
+            SelectedDetail = DetailViewModel.FromApproval(failed);
+            ActionMessage = "当前没有待审批操作，已打开最近的失败记录。";
+            return;
         }
+        IsActionError = false;
+        ActionMessage = "当前没有待审批操作。";
+    }
+
+    public bool OpenApproval(string approvalId)
+    {
+        var approval = FindApproval(approvalId);
+        if (approval is null)
+        {
+            SelectedDetail = null;
+            IsActionError = false;
+            ActionMessage = "通知中的审批不存在或已处理，请刷新后查看历史。";
+            return false;
+        }
+        SelectedDetail = DetailViewModel.FromApproval(approval);
+        return true;
     }
 
     public void CloseDetail() => SelectedDetail = null;
 
     private async Task ApproveSelectedAsync()
     {
-        var approval = Approvals.FirstOrDefault(item => item.Approval.Id == SelectedDetail?.ObjectId);
+        var approval = FindApproval(SelectedDetail?.ObjectId);
         var client = _clientProvider();
         if (approval is null || client is null || IsApprovalBusy) return;
+        var isRetry = approval.Approval.Status == "failed";
         var confirm = MessageBox.Show(
-            $"即将写入 Google Calendar：\n\n{approval.Title}\n建议时间：{approval.ProposedText}\n\n" +
+            $"{(isRetry ? "重试写入" : "即将写入")} Google Calendar：\n\n{approval.Title}\n" +
+            $"建议时间：{approval.ProposedText}\n\n" +
             "此操作会创建或修改外部日程。确认继续？",
-            "确认审批",
+            isRetry ? "确认重试" : "确认审批",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Warning);
         if (confirm != MessageBoxResult.OK) return;
@@ -307,12 +332,14 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
 
     private async Task RejectSelectedAsync()
     {
-        var approval = Approvals.FirstOrDefault(item => item.Approval.Id == SelectedDetail?.ObjectId);
+        var approval = FindApproval(SelectedDetail?.ObjectId);
         var client = _clientProvider();
         if (approval is null || client is null || IsApprovalBusy) return;
+        var isFailure = approval.Approval.Status == "failed";
         var confirm = MessageBox.Show(
-            $"拒绝这个待审批操作？\n\n{approval.Title}\n{approval.ProposedText}\n\nGoogle Calendar 不会被修改。",
-            "确认拒绝",
+            $"{(isFailure ? "忽略这条失败记录" : "拒绝这个待审批操作")}？\n\n{approval.Title}\n" +
+            $"{approval.ProposedText}\n\nGoogle Calendar 不会被修改。",
+            isFailure ? "确认忽略" : "确认拒绝",
             MessageBoxButton.OKCancel,
             MessageBoxImage.Question);
         if (confirm != MessageBoxResult.OK) return;
@@ -322,7 +349,7 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         {
             await client.RejectAsync(approval.Approval.Id);
             IsActionError = false;
-            ActionMessage = $"已拒绝操作：{approval.Title}";
+            ActionMessage = $"{(isFailure ? "已忽略失败记录" : "已拒绝操作")}：{approval.Title}";
             await LoadAsync(refresh: true);
         }
         catch (Exception error)
@@ -334,6 +361,38 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         {
             IsApprovalBusy = false;
         }
+    }
+
+    private ApprovalViewModel? FindApproval(string? approvalId)
+    {
+        if (string.IsNullOrWhiteSpace(approvalId)) return null;
+        return Approvals.FirstOrDefault(item => item.Approval.Id == approvalId)
+            ?? History.FirstOrDefault(item => item.Approval.Id == approvalId);
+    }
+
+    private async Task LoadHistoryAsync(LocalApiClient client)
+    {
+        try
+        {
+            var response = await client.GetApprovalHistoryAsync();
+            History.Clear();
+            foreach (var approval in response.Items)
+            {
+                History.Add(new ApprovalViewModel(approval, _timezone));
+            }
+        }
+        catch
+        {
+            // History is supplementary; failing to load it must not hide today's data.
+            History.Clear();
+        }
+        if (SelectedDetail?.IsApproval == true)
+        {
+            var current = FindApproval(SelectedDetail.ObjectId);
+            SelectedDetail = current is null ? null : DetailViewModel.FromApproval(current);
+        }
+        OnPropertyChanged(nameof(HasHistory));
+        OnPropertyChanged(nameof(IsEmpty));
     }
 
     private void Apply(TodayResponse response)
@@ -372,7 +431,10 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
             Approvals.Add(new ApprovalViewModel(approval, response.Timezone));
         }
 
-        if (SelectedDetail is not null && !ObjectStillPresent(SelectedDetail.ObjectId))
+        // Approval details are reconciled after history loads so a just-executed
+        // action stays selected while it moves from the pending list to history.
+        if (SelectedDetail is { IsApproval: false } &&
+            !ObjectStillPresent(SelectedDetail.ObjectId))
         {
             SelectedDetail = null;
         }
@@ -385,7 +447,8 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         return FocusItems.Any(item => item.Item.Id == objectId)
             || TimelineItems.Any(item => item.Item.Id == objectId || item.Item.LinkedObjectId == objectId)
             || KnowledgeItems.Any(item => item.Paper.Key == objectId)
-            || Approvals.Any(item => item.Approval.Id == objectId);
+            || Approvals.Any(item => item.Approval.Id == objectId)
+            || History.Any(item => item.Approval.Id == objectId);
     }
 
     private void ClearData()
@@ -398,6 +461,7 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         TimelineItems.Clear();
         KnowledgeItems.Clear();
         Approvals.Clear();
+        History.Clear();
         SelectedDetail = null;
         WeatherText = "天气暂不可用";
         UpdatedText = "尚未更新";
@@ -416,6 +480,7 @@ public sealed class TodayViewModel : ObservableObject, IWorkspacePage
         OnPropertyChanged(nameof(HasTimeline));
         OnPropertyChanged(nameof(HasKnowledge));
         OnPropertyChanged(nameof(HasApprovals));
+        OnPropertyChanged(nameof(HasHistory));
         OnPropertyChanged(nameof(IsEmpty));
         OnPropertyChanged(nameof(PendingApprovalCount));
         OnPropertyChanged(nameof(NotificationText));

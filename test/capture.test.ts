@@ -10,7 +10,7 @@ import { AppDatabase } from "../src/database.js";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("CLI accepts the three launcher capture paths without creating Calendar actions", () => {
+test("CLI accepts the three capture paths without creating Calendar actions", () => {
   const root = mkdtempSync(join(tmpdir(), "person-agent-capture-test-"));
   const home = join(root, "home");
   const vault = join(root, "vault");

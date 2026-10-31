@@ -11,7 +11,7 @@
 - Open-Meteo 天气
 - Zotero 7 本地 API（只读）
 - 标准 Markdown Obsidian vault
-- .NET Framework 自带 C# 编译器构建的轻量 WinForms 启动器
+- .NET 8 WPF 桌面客户端（`client/PersonAgent.Desktop`）
 - Node 内置 SQLite、测试运行器和 `fetch`
 
 ## 安装
@@ -41,15 +41,6 @@ pnpm dev -- chat
 - 知识库：`C:\Users\<用户名>\Documents\Person Agent Knowledge`
 - 晚间知识整理：`22:30`
 
-安装桌面录入程序（编译 `launcher/bin/PersonAgent.exe` 并创建桌面、开始菜单快捷方式）：
-
-```powershell
-pnpm build
-person-agent launcher install
-```
-
-仓库移动后需要重新运行 `launcher install`，因为启动器保存了当前仓库的 CLI 路径。
-
 ### Google OAuth 准备
 
 1. 在 Google Cloud Console 创建项目。
@@ -74,7 +65,7 @@ OAuth token 和可选的 DeepSeek key 使用当前 Windows 用户的 DPAPI 加�
 
 ## 使用
 
-日常主入口是上面的 Windows 原生客户端；CLI 继续保留 `setup`、`doctor`、`worker` 和故障恢复能力，也保留给高级用户。以下命令仍可独立使用。
+日常主入口是 Windows 原生客户端（见下文）；CLI 继续保留 `setup`、`doctor`、`worker` 和故障恢复能力，也保留给高级用户。以下命令仍可独立使用。
 
 ```powershell
 # 交互式聊天
@@ -114,7 +105,7 @@ person-agent knowledge digest
 person-agent knowledge open-today
 ```
 
-新讲座或组会会自动创建提前 24 小时提醒；明确需要汇报时，再增加提前 72 小时提醒。`task add` 只写本地任务表，不会创建 Calendar 事件；Calendar 写入仍必须走审批（客户端待审批卡，或 CLI 高级用户的 `/approve`）。
+新讲座或组会会自动创建提前 24 小时提醒；明确需要汇报时，再增加提前 72 小时提醒。`task add` 只写本地任务表，不会创建 Calendar 事件；Calendar 写入仍必须走客户端审批卡。
 
 ## 知识库与晚间整理
 
@@ -138,22 +129,9 @@ Person Agent Knowledge/
 
 `22:30` 任务复用现有 `briefing` 定时任务类型和独立任务 ID，不会重建 jobs 表。worker 会扫描最近 7 天内尚未完成的日期，按从旧到新的顺序逐日补发；即使次日 11:00 才开机也不会丢掉前一晚的整理。失败任务按 1 小时、6 小时、24 小时退避后重新入队并真正重跑，连续 4 次失败后停止自动重试。覆盖 `briefing` 的既有晨间流程不受影响。
 
-## 桌面录入程序
-
-> 迁移期旧入口：日常记录请使用上面的 Windows 原生客户端；阶段 4 等价能力验收后删除本程序。
-
-`launcher install` 使用 Windows 自带 .NET Framework C# 编译器生成 `launcher/bin/PersonAgent.exe`，不引入 Electron。程序提供 Idea、作业、讲座三个页面：
-
-- Idea：正文必填，标题可空并从首行生成，标签可选。
-- 作业：标题必填，截止时间可选，默认 60 分钟、中优先级。
-- 讲座：复用现有讲座字段和校验。
-- 公共按钮：保存、保存并关闭、立即整理、打开今日日报。保存成功后当前页输入会清空，避免同一条记录被再次提交。
-
-EXE 隐藏调用与命令行完全相同的 CLI，校验和写入逻辑只有一份。所有操作只写本地知识库或 SQLite，不会自动写 Calendar。
-
 ## Windows 原生客户端
 
-阶段 1–3 的本地应用服务和 WPF 五页客户端已可用。客户端启动时会生成一次性会话 token，通过 `PERSON_AGENT_SESSION_TOKEN` 环境变量传给隐藏的 `person-agent serve` 子进程；服务只监听 `127.0.0.1`，浏览器来源请求会被拒绝。
+阶段 1–4 的本地应用服务、WPF 五页客户端和通知深链已完成，阶段 5 的审批失败重试与审批历史也已补齐。旧的 WinForms 录入程序、`launcher/` 和 `demo/` 网页原型已删除，日常主流程只需要这一个正式界面。客户端启动时会生成一次性会话 token，通过 `PERSON_AGENT_SESSION_TOKEN` 环境变量传给隐藏的 `person-agent serve` 子进程；服务只监听 `127.0.0.1`，浏览器来源请求会被拒绝。
 
 当前可用：
 
@@ -164,9 +142,11 @@ EXE 隐藏调用与命令行完全相同的 CLI，校验和写入逻辑只有一
 - 设置：真实连接状态、自动化开关与时间、知识库路径和时区；保存后同时更新配置和 worker 调度。
 - 快速记录：Idea / 任务 / 讲座三种独立表单。
 - Ctrl+K：库内搜索与 Agent 回答分区展示；搜索结果可跳转到任务或论文详情。
+- 审批历史：保留执行失败、已执行和已拒绝的记录；失败记录可在详情面板中按原 payload 重试或忽略。
+- 通知深链：客户端启动时把自身路径登记到应用目录的 `desktop.json`；Windows 通知提供“打开待审批 / 打开今日 / 打开日历”按钮，直接打开对应页面。客户端保持单实例，重复启动会把深链转发给已打开的窗口。
 - 所有写操作通过本地接口完成；Calendar 写入无法绕过审批卡。
 
-本地接口覆盖 `docs/api/openapi.yaml` 中的健康、今日、任务、候选时段、排期、日历、讲座、Idea、论文、知识同步/整理、operation、审批、设置、搜索和 Agent。
+本地接口覆盖 `docs/api/openapi.yaml` 中的健康、今日、任务、候选时段、排期、日历、讲座、Idea、论文、知识同步/整理、operation、审批、审批历史、设置、搜索和 Agent。
 
 构建与运行：
 
@@ -177,6 +157,15 @@ dotnet run --project client/PersonAgent.Desktop/PersonAgent.Desktop.csproj
 ```
 
 构建需要 .NET 8 SDK，运行需要 .NET 8 Desktop Runtime。客户端默认从仓库的 `dist/src/cli.js` 拉起服务；也可以通过 `PERSON_AGENT_CLI` 指定 CLI 路径，用 `PERSON_AGENT_NODE` 指定 node 可执行文件。`PERSON_AGENT_SERVE_COMMAND` 可指定服务可执行文件（客户端仍会追加 `serve --port 0`）。
+
+如果系统只安装了 .NET 6，可以使用仓库内的本地 SDK（已 gitignore）：
+
+```powershell
+$env:DOTNET_ROOT = "D:\person-agent\.dotnet"
+$env:DOTNET_MULTILEVEL_LOOKUP = "0"
+D:\person-agent\.dotnet\dotnet.exe build client/PersonAgent.Desktop/PersonAgent.Desktop.csproj -c Debug
+D:\person-agent\.dotnet\dotnet.exe run --project client/PersonAgent.Desktop/PersonAgent.Desktop.csproj
+```
 
 版本变更与已知限制见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -195,10 +184,14 @@ Agent 会按以下过程工作：
 2. 对不明确的任务或截止时间先追问。
 3. 用确定性算法合并 Calendar、讲座和本地计划，计算工作时段。
 4. 将任务保存为可逆的 `draft`，展示计划后生成 Calendar 待审批操作。
-5. 用户在客户端“今日 → 待审批”中核对固定 payload 并确认后才执行写入；拒绝则放弃。CLI 高级用户仍可用 `/approve <ID>`、`/reject <ID>` 和 `/pending` 完成同样操作。
-6. 后台发现关联事件被删除或新增日程冲突时，将任务标记为 `needs_replan`，计算候选时段并通过 Windows 通知给出新的审批 ID。
+5. 用户在客户端“今日 → 待审批”中核对固定 payload 并确认后才执行写入；拒绝则放弃。
+6. 后台发现关联事件被删除或新增日程冲突时，将任务标记为 `needs_replan`，计算候选时段，并通过带“打开待审批”按钮的 Windows 通知让用户直接进入对应审批。
 
-审批内容、执行状态和结果持久化在 SQLite。模型不能自行批准操作；执行参数与审批快照不一致时，业务层会拒绝执行。Calendar 创建使用稳定事件 ID，异常退出后的重试不会重复创建事件。
+审批内容、执行状态和结果持久化在 SQLite。模型不能自行批准操作；执行参数与审批快照不一致时，业务层会拒绝执行。Calendar 创建使用稳定事件 ID，异常退出后的重试不会重复创建事件。失败操作会保留在审批历史中，并可在客户端按原 payload 重试。
+
+### 高级 CLI 与故障恢复
+
+日常主流程不依赖 CLI。只有在客户端无法启动或需要脚本化恢复时，才使用 `person-agent chat` 中的 `/pending`、`/approve <ID>` 和 `/reject <ID>`；它们与客户端审批卡经过同一审批门控，执行的也是已持久化的固定 payload。
 
 ## 后台提醒
 
@@ -229,7 +222,7 @@ pnpm test
 pnpm build
 ```
 
-当前 75 项自动化测试覆盖时区调度、任务幂等、通知重试、崩溃恢复、邮件解析、空闲时段、任务持久化、任务状态机、Calendar 审批门控与执行、候选时段、冲突检测和重排提案、配置兼容与自动化开关、数据库增量迁移、Obsidian 区块幂等与批注保留、Zotero 分页/版本游标/去重/全文头尾采样与降级/每日 5 篇限流、模型与全文请求的失败退避及新论文优先、失败任务延迟后真正重跑、跨 12 小时的隔夜补发与多日补发队列、CLI 录入路径和 Obsidian 打开回退，以及本地 API 的会话 token 鉴权、跨站拒绝、今日/任务/日历/论文/设置/搜索/Agent 接口、知识 operation 互斥、空数据、局部失败降级、`serve` 启停和 worker 运行状态映射。
+当前 76 项自动化测试覆盖时区调度、任务幂等、通知重试与通知深链参数、客户端登记文件解析、崩溃恢复、邮件解析、空闲时段、任务持久化、任务状态机、Calendar 审批门控与执行、候选时段、冲突检测和重排提案、配置兼容与自动化开关、数据库增量迁移、Obsidian 区块幂等与批注保留、Zotero 分页/版本游标/去重/全文头尾采样与降级/每日 5 篇限流、模型与全文请求的失败退避及新论文优先、失败任务延迟后真正重跑、跨 12 小时的隔夜补发与多日补发队列、CLI 录入路径和 Obsidian 打开回退，以及本地 API 的会话 token 鉴权、跨站拒绝、今日/任务/日历/论文/设置/搜索/Agent 接口、审批历史与失败重试、知识 operation 互斥、空数据、局部失败降级、`serve` 启停和 worker 运行状态映射。
 
 另有 20 条真实模型场景评测。它使用本地工具夹具，不访问真实 Gmail 或 Calendar，但会实际调用已配置的 DeepSeek，验证工具路由、澄清、提示注入防护和写操作审批：
 

@@ -31,6 +31,15 @@ export const approvalRoutes: Route[] = [
     },
   },
   {
+    method: "GET",
+    pattern: "/api/approvals/history",
+    async handler(request) {
+      const limit = historyLimit(request.query.get("limit"));
+      const actions = request.database.listApprovalHistory(limit);
+      return { body: { items: actions.map((action) => toApproval(request, action)).filter(Boolean) } };
+    },
+  },
+  {
     method: "POST",
     pattern: "/api/approvals/:actionId/approve",
     async handler(request) {
@@ -95,4 +104,16 @@ function requiredActionId(request: RouteRequest): string {
   const actionId = request.params.actionId;
   if (!actionId) throw validation("缺少 actionId 参数。", "actionId");
   return actionId;
+}
+
+function historyLimit(text: string | null): number {
+  if (text === null) return 20;
+  if (!/^\d+$/.test(text)) {
+    throw validation("limit 必须是 1–50 的整数。", "limit", "limit 必须是 1–50 的整数。");
+  }
+  const limit = Number(text);
+  if (limit < 1 || limit > 50) {
+    throw validation("limit 必须是 1–50 的整数。", "limit", "limit 必须是 1–50 的整数。");
+  }
+  return limit;
 }

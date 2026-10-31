@@ -252,6 +252,7 @@ pending ──用户确认──> approved ──执行器领取──> executin
 - `claimWorkflowAction` 必须验证存储的 kind 和 payload 与执行参数完全一致。
 - `executed` 与 `rejected` 为终态。
 - `failed` 可以再次批准后重试；稳定 Calendar event ID 保证重试不重复创建。
+- `GET /api/approvals/history` 返回 pending 以外的记录，失败优先、其余按创建时间倒序，默认 20 条、最多 50 条；客户端据此展示重试和追溯入口。
 
 ### 5.3 论文分析
 

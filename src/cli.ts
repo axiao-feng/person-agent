@@ -15,7 +15,6 @@ import { generateKnowledgeDigest } from "./knowledge/digest.js";
 import { openTodayKnowledgeNote } from "./knowledge/open.js";
 import { createIdeaNote, ensureKnowledgeVault } from "./knowledge/vault.js";
 import { syncZotero } from "./knowledge/zotero.js";
-import { installLauncher } from "./launcher/install.js";
 import { createLogger } from "./logger.js";
 import { appPaths, ensureAppDirectory, type AppPaths } from "./paths.js";
 import { loadSecrets, saveSecrets } from "./secrets.js";
@@ -73,9 +72,6 @@ async function main(): Promise<void> {
       break;
     case "knowledge":
       await knowledgeCommand(paths, args);
-      break;
-    case "launcher":
-      await launcherCommand(args);
       break;
     case "worker":
       await workerCommand(paths, args);
@@ -511,12 +507,6 @@ async function knowledgeCommand(paths: AppPaths, args: string[]): Promise<void> 
   }
 }
 
-async function launcherCommand(args: string[]): Promise<void> {
-  const [action = "install"] = args;
-  if (action !== "install") throw new Error(`未知 launcher 操作：${action}`);
-  printJson(installLauncher());
-}
-
 async function workerCommand(paths: AppPaths, args: string[]): Promise<void> {
   const [action = "status"] = args;
   if (action === "install") console.log(installWorkerTask());
@@ -742,6 +732,5 @@ function printHelp(): void {
   task add --kind research|assignment|other --title <标题> [--deadline <ISO>] [--minutes 60] [--priority medium]
   task list
   knowledge sync|digest|open-today
-  launcher install
   worker run|install|start|status|uninstall`);
 }

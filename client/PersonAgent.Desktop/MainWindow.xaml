@@ -139,11 +139,13 @@
                     </Grid>
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0"
-                                Visibility="{Binding SelectedDetail.IsApproval, Converter={StaticResource BoolToVisibility}}">
-                        <Button Content="批准并写入 Google Calendar" Style="{StaticResource ToolButton}"
-                                Command="{Binding Today.ApproveSelectedCommand}" Margin="0,0,0,6" />
-                        <Button Content="拒绝" Style="{StaticResource ToolButton}"
-                                Command="{Binding Today.RejectSelectedCommand}" Margin="0,0,0,6" />
+                                Visibility="{Binding SelectedDetail.CanApprove, Converter={StaticResource BoolToVisibility}}">
+                        <Button Content="{Binding SelectedDetail.ApproveLabel}" Style="{StaticResource ToolButton}"
+                                Command="{Binding Today.ApproveSelectedCommand}" Margin="0,0,0,6"
+                                Visibility="{Binding SelectedDetail.CanApprove, Converter={StaticResource BoolToVisibility}}" />
+                        <Button Content="{Binding SelectedDetail.RejectLabel}" Style="{StaticResource ToolButton}"
+                                Command="{Binding Today.RejectSelectedCommand}" Margin="0,0,0,6"
+                                Visibility="{Binding SelectedDetail.CanReject, Converter={StaticResource BoolToVisibility}}" />
                         <TextBlock Text="{Binding Today.ActionMessage}" TextWrapping="Wrap"
                                    Visibility="{Binding Today.HasActionMessage, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock.Style>

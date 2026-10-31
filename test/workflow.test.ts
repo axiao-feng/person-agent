@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { AppDatabase } from "../src/database.js";
 import type { CalendarEvent } from "../src/integrations/google.js";
+import type { NotificationAction } from "../src/notifications.js";
 import { findFreeSlots } from "../src/schedule.js";
 import { buildTools } from "../src/tools.js";
 import { monitorTaskPlans } from "../src/worker.js";
@@ -157,7 +158,11 @@ test("monitor detects a calendar conflict and stages a replan proposal", async (
     });
     const own = event("own-event", "完成论文实验", "2026-09-21T10:00:00+08:00", "2026-09-21T11:00:00+08:00");
     const conflict = event("meeting", "临时组会", "2026-09-21T10:30:00+08:00", "2026-09-21T11:30:00+08:00");
-    const notifications: string[] = [];
+    const notifications: Array<{
+      title: string;
+      body: string;
+      action: NotificationAction | undefined;
+    }> = [];
     await monitorTaskPlans(
       {
         paths: testPaths(root),
@@ -177,8 +182,8 @@ test("monitor detects a calendar conflict and stages a replan proposal", async (
           getCalendarEvent: async () => own,
           listCalendarEvents: async () => [own, conflict],
         },
-        notifier: async (_title, body) => {
-          notifications.push(body);
+        notifier: async (title, body, action) => {
+          notifications.push({ title, body, action });
         },
       },
     );
@@ -186,7 +191,9 @@ test("monitor detects a calendar conflict and stages a replan proposal", async (
     const [action] = database.listWorkflowActions("pending");
     assert.equal(action?.kind, "calendar.update");
     assert.equal(action?.payload.taskId, task.id);
-    assert.match(notifications[0]!, /\/approve/);
+    assert.match(notifications[0]!.body, /打开待审批/);
+    assert.equal(notifications[0]!.body.includes("/approve"), false);
+    assert.deepEqual(notifications[0]!.action, { kind: "approval", id: action!.id });
   });
 });
 

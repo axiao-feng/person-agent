@@ -5,7 +5,11 @@ import { GoogleService, type CalendarEvent } from "./integrations/google.js";
 import { getWeather } from "./integrations/weather.js";
 import { generateKnowledgeDigest } from "./knowledge/digest.js";
 import type { Logger } from "./logger.js";
-import { windowsNotifier, type Notifier } from "./notifications.js";
+import {
+  windowsNotifier,
+  type NotificationAction,
+  type Notifier,
+} from "./notifications.js";
 import type { AppPaths } from "./paths.js";
 import { findFreeSlots, localDayRange } from "./schedule.js";
 
@@ -131,7 +135,8 @@ async function stageTaskReplan(
   const action = context.database.stageWorkflowAction(event ? "calendar.update" : "calendar.create", payload);
   await notifier(
     "科研任务需要重新安排",
-    `${task.title}\n${reason}。建议时段：${formatTime(slot.start, context.config.timezone)}。请打开 Person Agent 客户端，在“今日 → 待审批”中确认；CLI 高级用户仍可输入 /approve ${action.id}。`,
+    `${task.title}\n${reason}。建议时段：${formatTime(slot.start, context.config.timezone)}。点击“打开待审批”，或打开 Person Agent 客户端，在“今日 → 待审批”中确认。`,
+    { kind: "approval", id: action.id },
   );
 }
 
@@ -240,7 +245,11 @@ export async function processDueJobs(
         }
       }
 
-      await notifyWithRetries(notifier, job.title, body, sleep);
+      const action: NotificationAction =
+        job.kind === "lecture" && job.sourceId
+          ? { kind: "lecture", id: job.sourceId }
+          : { kind: "today" };
+      await notifyWithRetries(notifier, job.title, body, sleep, action);
       context.database.completeRun(runId, "delivered", null, options.now ?? new Date());
       context.logger("job_delivered", { jobId: job.id, kind: job.kind });
     } catch (error) {
@@ -299,12 +308,13 @@ async function notifyWithRetries(
   title: string,
   body: string,
   sleep: (milliseconds: number) => Promise<void>,
+  action?: NotificationAction,
 ): Promise<void> {
   let lastError: unknown;
   for (const delay of [0, 1_000, 5_000, 30_000]) {
     if (delay) await sleep(delay);
     try {
-      await notifier(title, body);
+      await notifier(title, body, action);
       return;
     } catch (error) {
       lastError = error;

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Person Agent Local API
-  version: 0.2.0
+  version: 0.3.0
   summary: WPF 客户端与本机 TypeScript 服务之间的实现合同
   description: |
     本合同描述 Windows 当前用户会话内的 loopback API。
@@ -498,6 +498,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApprovalListResponse"
+
+  /api/approvals/history:
+    get:
+      tags: [Approvals]
+      operationId: listApprovalHistory
+      summary: 查询可追溯的审批历史（失败记录优先）
+      description: 返回 pending 以外的操作，最多 50 条；失败记录可再次调用 approve 重试。
+      x-person-agent-phase: 4
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: 审批历史列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalListResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
 
   /api/approvals/{actionId}/approve:
     post:

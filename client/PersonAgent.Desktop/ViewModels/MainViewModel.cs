@@ -24,6 +24,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _startupErrorText = "";
     private string _serviceStatusText = "正在启动本地服务…";
     private string _workerStatusText = "后台任务状态未知";
+    private bool _suppressSectionLoad;
     private bool _disposed;
 
     public MainViewModel()
@@ -102,7 +103,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (previous?.Page is IWorkspacePage oldPage) oldPage.CloseDetail();
             ActivePage = value?.Page;
             SelectedDetail = null;
-            if (value?.Page is IWorkspacePage page)
+            if (value?.Page is IWorkspacePage page && !_suppressSectionLoad)
             {
                 _ = page.LoadAsync();
             }
@@ -185,6 +186,58 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await page.LoadAsync(refresh: true);
         }
         await RefreshHealthAsync();
+    }
+
+    public async Task OpenDeepLinkAsync(DeepLink link)
+    {
+        if (link.Kind == DeepLinkKind.Activate) return;
+        if (_client is null && !IsConnecting)
+        {
+            await StartBackendAsync();
+        }
+        switch (link.Kind)
+        {
+            case DeepLinkKind.Today:
+                await NavigateAsync(0);
+                break;
+            case DeepLinkKind.Approval:
+                await NavigateAsync(0, load: false);
+                await Today.LoadAsync(refresh: true);
+                if (!string.IsNullOrWhiteSpace(link.ObjectId))
+                {
+                    Today.OpenApproval(link.ObjectId);
+                }
+                break;
+            case DeepLinkKind.Lecture:
+                await NavigateAsync(3);
+                if (!string.IsNullOrWhiteSpace(link.ObjectId))
+                {
+                    await Calendar.SelectByIdAsync(link.ObjectId);
+                }
+                break;
+        }
+    }
+
+    private async Task NavigateAsync(int sectionIndex, bool load = true)
+    {
+        if (sectionIndex < 0 || sectionIndex >= Sections.Count) return;
+        var section = Sections[sectionIndex];
+        if (!ReferenceEquals(SelectedSection, section))
+        {
+            _suppressSectionLoad = true;
+            try
+            {
+                SelectedSection = section;
+            }
+            finally
+            {
+                _suppressSectionLoad = false;
+            }
+        }
+        if (load && section.Page is IWorkspacePage page)
+        {
+            await page.LoadAsync();
+        }
     }
 
     public async Task ShutdownAsync()

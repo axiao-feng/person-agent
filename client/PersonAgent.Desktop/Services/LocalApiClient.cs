@@ -218,6 +218,9 @@ public sealed class LocalApiClient : IDisposable
         return GetAsync<ApprovalListResponse>(path, cancellationToken);
     }
 
+    public Task<ApprovalListResponse> GetApprovalHistoryAsync(int limit = 20, CancellationToken cancellationToken = default) =>
+        GetAsync<ApprovalListResponse>($"api/approvals/history?limit={limit}", cancellationToken);
+
     public Task<ApprovalResponse> ApproveAsync(string id, CancellationToken cancellationToken = default) =>
         SendAsync<ApprovalResponse>(HttpMethod.Post, $"api/approvals/{Uri.EscapeDataString(id)}/approve", null, TimeSpan.FromSeconds(30), cancellationToken);
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { AppDatabase } from "../src/database.js";
+import type { NotificationAction } from "../src/notifications.js";
 import { nextOccurrence } from "../src/schedule.js";
 import { processDueJobs } from "../src/worker.js";
 
@@ -123,7 +124,7 @@ test("worker retries a notification and advances the job exactly once", async ()
       createdAt,
     );
     let attempts = 0;
-    const delivered: string[] = [];
+    const delivered: Array<{ title: string; action: NotificationAction | undefined }> = [];
     await processDueJobs(
       {
         paths: {
@@ -145,16 +146,16 @@ test("worker retries a notification and advances the job exactly once", async ()
       },
       {
         now: new Date("2026-09-20T01:00:00.000Z"),
-        notifier: async (title) => {
+        notifier: async (title, _body, action) => {
           attempts += 1;
           if (attempts < 4) throw new Error("temporary failure");
-          delivered.push(title);
+          delivered.push({ title, action });
         },
         sleep: async () => undefined,
       },
     );
     assert.equal(attempts, 4);
-    assert.deepEqual(delivered, ["实验室例会"]);
+    assert.deepEqual(delivered, [{ title: "实验室例会", action: { kind: "today" } }]);
     assert.equal(database.runCount(job.id), 1);
     assert.equal(database.listDueJobs(new Date("2026-09-21T00:00:00.000Z")).length, 0);
   });

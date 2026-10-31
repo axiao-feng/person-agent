@@ -94,6 +94,9 @@ public sealed class ApprovalViewModel
                 approval.Display.OriginalEnd,
                 timezone);
         CreatedText = DisplayText.DateAndTime(approval.CreatedAt, timezone);
+        ExecutedText = string.IsNullOrWhiteSpace(approval.ExecutedAt)
+            ? ""
+            : DisplayText.DateAndTime(approval.ExecutedAt, timezone);
     }
 
     public Approval Approval { get; }
@@ -102,9 +105,18 @@ public sealed class ApprovalViewModel
     public string ProposedText { get; }
     public string OriginalText { get; }
     public string CreatedText { get; }
+    public string ExecutedText { get; }
     public string? ReasonText => Approval.Display.Reason;
     public bool HasReason => !string.IsNullOrWhiteSpace(Approval.Display.Reason);
+    public string StatusKey => Approval.Status;
     public string StatusText => DisplayText.ApprovalStatusLabel(Approval.Status);
+    public bool HasError => !string.IsNullOrWhiteSpace(Approval.Error);
+    public string ErrorText => Approval.Error ?? "";
+    public bool IsActionable => Approval.Status is "pending" or "failed";
+    public string ApproveLabel => Approval.Status == "failed"
+        ? "重试写入 Google Calendar"
+        : "批准并写入 Google Calendar";
+    public string RejectLabel => Approval.Status == "failed" ? "忽略" : "拒绝";
 }
 
 public sealed class DetailRow
@@ -127,16 +139,16 @@ public sealed class DetailViewModel
         string statusText,
         IReadOnlyList<DetailRow> rows,
         string? note = null,
-        bool isApproval = false,
-        string? objectId = null)
+        string? objectId = null,
+        ApprovalViewModel? approval = null)
     {
         Title = title;
         KindText = kindText;
         StatusText = statusText;
         Rows = rows;
         Note = note;
-        IsApproval = isApproval;
         ObjectId = objectId;
+        Approval = approval;
     }
 
     public string Title { get; }
@@ -145,7 +157,12 @@ public sealed class DetailViewModel
     public IReadOnlyList<DetailRow> Rows { get; }
     public string? Note { get; }
     public bool HasNote => !string.IsNullOrWhiteSpace(Note);
-    public bool IsApproval { get; }
+    public ApprovalViewModel? Approval { get; }
+    public bool IsApproval => Approval is not null;
+    public bool CanApprove => Approval?.IsActionable == true;
+    public bool CanReject => Approval?.IsActionable == true;
+    public string ApproveLabel => Approval?.ApproveLabel ?? "";
+    public string RejectLabel => Approval?.RejectLabel ?? "";
     public string? ObjectId { get; }
 
     public static DetailViewModel FromFocus(FocusItemViewModel focus, string timezone)
@@ -230,14 +247,32 @@ public sealed class DetailViewModel
             rows.Add(new DetailRow("变更原因", approval.ReasonText!));
         }
         rows.Add(new DetailRow("创建时间", approval.CreatedText));
+        if (!string.IsNullOrWhiteSpace(approval.ExecutedText))
+        {
+            rows.Add(new DetailRow("执行时间", approval.ExecutedText));
+        }
+        if (approval.HasError)
+        {
+            rows.Add(new DetailRow("错误", approval.ErrorText));
+        }
         rows.Add(new DetailRow("操作 ID", approval.Approval.Id));
         return new DetailViewModel(
             approval.Title,
-            "待审批操作",
+            approval.Approval.Status == "pending" ? "待审批操作" : "审批记录",
             approval.StatusText,
             rows,
-            "尚未写入 Google Calendar。确认后才会创建或修改外部日程。",
-            isApproval: true,
-            objectId: approval.Approval.Id);
+            ApprovalNote(approval),
+            approval.Approval.Id,
+            approval);
     }
+
+    private static string ApprovalNote(ApprovalViewModel approval) =>
+        approval.Approval.Status switch
+        {
+            "pending" => "尚未写入 Google Calendar。确认后才会创建或修改外部日程。",
+            "failed" => "上次执行失败。确认后可以按相同 payload 重试，失败记录也可以忽略。",
+            "executed" => "已写入 Google Calendar。此记录仅用于追溯。",
+            "rejected" => "该操作已被拒绝，不会写入 Google Calendar。",
+            _ => "该操作尚未完成执行，请刷新后查看最新状态。",
+        };
 }
