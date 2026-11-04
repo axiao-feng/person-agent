@@ -306,6 +306,59 @@ public sealed class LocalApiClient : IDisposable
             TimeSpan.FromSeconds(20),
             cancellationToken);
 
+    public Task<MemoryListResponse> GetMemoriesAsync(
+        string? kind = null,
+        string? query = null,
+        int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var path = $"api/memories?limit={limit}";
+        if (!string.IsNullOrWhiteSpace(kind)) path += $"&kind={Uri.EscapeDataString(kind)}";
+        if (!string.IsNullOrWhiteSpace(query)) path += $"&query={Uri.EscapeDataString(query)}";
+        return GetAsync<MemoryListResponse>(path, cancellationToken);
+    }
+
+    public Task<MemoryResponse> CreateMemoryAsync(
+        string kind,
+        string content,
+        int importance,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<MemoryResponse>(
+            HttpMethod.Post,
+            "api/memories",
+            new { Kind = kind, Content = content, Importance = importance },
+            TimeSpan.FromSeconds(20),
+            cancellationToken);
+
+    public Task<MemoryResponse> UpdateMemoryAsync(
+        string memoryId,
+        string? content,
+        string? kind,
+        int? importance,
+        CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object?>();
+        if (content is not null) body["content"] = content;
+        if (kind is not null) body["kind"] = kind;
+        if (importance is not null) body["importance"] = importance;
+        return SendAsync<MemoryResponse>(
+            HttpMethod.Patch,
+            $"api/memories/{Uri.EscapeDataString(memoryId)}",
+            body,
+            TimeSpan.FromSeconds(20),
+            cancellationToken);
+    }
+
+    public Task<DeleteMemoryResponse> DeleteMemoryAsync(
+        string memoryId,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<DeleteMemoryResponse>(
+            HttpMethod.Delete,
+            $"api/memories/{Uri.EscapeDataString(memoryId)}",
+            null,
+            TimeSpan.FromSeconds(20),
+            cancellationToken);
+
     private Task<T> GetAsync<T>(string path, CancellationToken cancellationToken) =>
         SendCoreAsync<T>(HttpMethod.Get, path, null, TimeSpan.FromSeconds(20), cancellationToken);
 

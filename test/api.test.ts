@@ -417,6 +417,73 @@ test("conversations can be created, archived, and deleted", async () => {
   });
 });
 
+test("memories can be created, deduplicated, edited, and deleted", async () => {
+  await withApi(async (api) => {
+    const created = await api.send("/api/memories", "POST", {
+      kind: "preference",
+      content: "偏好上午阅读论文",
+      importance: 4,
+    });
+    assert.equal(created.status, 201);
+    const createdBody = (await created.json()) as {
+      memory: { id: string; importance: number };
+      created: boolean;
+    };
+    assert.equal(createdBody.created, true);
+    assert.equal(createdBody.memory.importance, 4);
+
+    const duplicate = await api.send("/api/memories", "POST", {
+      kind: "preference",
+      content: "偏好上午阅读论文",
+    });
+    assert.equal(duplicate.status, 200);
+    assert.equal(((await duplicate.json()) as { created: boolean }).created, false);
+
+    const list = await api.get(`/api/memories?query=${encodeURIComponent("上午")}`);
+    assert.equal(list.status, 200);
+    const items = ((await list.json()) as {
+      items: Array<{ id: string; content: string; importance: number }>;
+    }).items;
+    assert.equal(items.length, 1);
+    assert.equal(items[0]?.content, "偏好上午阅读论文");
+
+    const updated = await api.send(`/api/memories/${createdBody.memory.id}`, "PATCH", {
+      importance: 5,
+      content: "偏好上午阅读和写作",
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(
+      ((await updated.json()) as { memory: { content: string; importance: number } }).memory.content,
+      "偏好上午阅读和写作",
+    );
+
+    const deleted = await api.send(`/api/memories/${createdBody.memory.id}`, "DELETE");
+    assert.equal(deleted.status, 200);
+    const empty = await api.get("/api/memories");
+    assert.deepEqual(((await empty.json()) as { items: unknown[] }).items, []);
+    const again = await api.send(`/api/memories/${createdBody.memory.id}`, "DELETE");
+    assert.equal(again.status, 200, "delete is idempotent for an already removed memory");
+    const missing = await api.send("/api/memories/00000000-0000-4000-8000-000000000000", "DELETE");
+    assert.equal(missing.status, 404);
+
+    const invalid = await api.send("/api/memories", "POST", { kind: "nope", content: "x" });
+    assert.equal(invalid.status, 422);
+  });
+});
+
+test("expired memories are excluded from the list", async () => {
+  await withApi(async (api) => {
+    const past = await api.send("/api/memories", "POST", {
+      kind: "experience",
+      content: "已经过期的安排",
+      validUntil: "2026-10-01T00:00:00.000Z",
+    });
+    assert.equal(past.status, 201);
+    const list = await api.get("/api/memories");
+    assert.deepEqual(((await list.json()) as { items: unknown[] }).items, []);
+  });
+});
+
 test("rejected approvals cannot be approved later", async () => {
   await withApi(async (api) => {
     const rejected = await api.send(`/api/approvals/${api.fixture.actionId}/reject`, "POST");

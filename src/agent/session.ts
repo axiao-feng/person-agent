@@ -21,6 +21,9 @@ export type AgentReference = {
   title: string;
 };
 
+/** How many confirmed memories are eligible for prompt injection per request. */
+export const SESSION_MEMORY_LIMIT = 20;
+
 export type ConversationTurnResult = {
   conversation: AgentConversation;
   answer: string;
@@ -112,10 +115,15 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
   );
 
   const activeSummary = options.database.getActiveAgentSummary(conversation.id);
+  const memories =
+    options.memories ??
+    options.database
+      .listAgentMemories({ limit: SESSION_MEMORY_LIMIT, now })
+      .map((memory) => ({ id: memory.id, kind: memory.kind, content: memory.content }));
   const manifests: ContextManifest[] = [];
   const context: ConversationContextOptions = {
     summary: activeSummary ? summaryContext(activeSummary) : null,
-    memories: options.memories ?? [],
+    memories,
     ...(options.budgetTokens ? { budgetTokens: options.budgetTokens } : {}),
     onRequest: (manifest) => {
       manifests.push(manifest);

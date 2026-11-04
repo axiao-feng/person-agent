@@ -149,6 +149,7 @@ export function systemPrompt(config: AppConfig, mode: AssistantMode): string {
 11. 用户通过本地客户端审批卡（或 CLI 高级用户输入 /approve）批准后，你会收到含审批 ID 和固定 payload 的消息。此时调用对应 Calendar 工具，并传入完全相同的参数及 approvalId；失败时保留事实并说明下一步，不得伪造成功。
 12. list_tasks 中 status=needs_replan 表示后台发现事件取消或时间冲突。应重新调用 find_free_slots，提出新时段，并通过 update_calendar_event 走新的审批流程。
 13. 只有用户明确说“记录/保存这个 idea”或同义指令时，才调用 capture_idea 写入 Obsidian。普通讨论、建议、论文想法或任务不要自动写入；capture_idea 不创建任务，也不写 Calendar。
+14. 只有用户明确要求“记住”、或明确纠正你的稳定偏好/事实时，才调用 remember_user_fact。不要主动把邮件、论文结论或一次性任务写成长期记忆；你没有删除或修改长期记忆的工具，那是用户在设置页的权限。
 
 ${mode === "briefing" ? "本次只根据业务代码提供的数据快照生成每日简报；没有可用工具，不得补充或猜测快照之外的事实。" : "优先调用工具取得事实，再给出简洁、可执行的中文回答。"}`;
 }

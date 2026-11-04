@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Person Agent Local API
-  version: 0.5.0
+  version: 0.6.0
   summary: WPF 客户端与本机 TypeScript 服务之间的实现合同
   description: |
     本合同描述 Windows 当前用户会话内的 loopback API。
@@ -762,6 +762,113 @@ paths:
         "503":
           $ref: "#/components/responses/DependencyUnavailable"
 
+  /api/memories:
+    get:
+      tags: [Agent]
+      operationId: listMemories
+      summary: 列出当前生效的长期记忆
+      description: 默认按重要度与更新时间倒序；已删除与已过期的记忆不会出现。
+      x-person-agent-phase: 6
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [preference, fact, experience, correction]
+        - name: query
+          in: query
+          required: false
+          description: 内容关键词（LIKE 匹配）
+          schema: { type: string, maxLength: 200 }
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 长期记忆列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryListResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+    post:
+      tags: [Agent]
+      operationId: createMemory
+      summary: 保存一条长期记忆
+      description: 相同 kind 且规范化内容相同的生效记忆会合并并提升重要度，不会重复创建。
+      x-person-agent-phase: 6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMemoryRequest"
+      responses:
+        "201":
+          description: 新建的记忆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryResponse"
+        "200":
+          description: 合并到已有记忆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/memories/{memoryId}:
+    patch:
+      tags: [Agent]
+      operationId: updateMemory
+      summary: 修改记忆内容、类型、重要度或失效时间
+      x-person-agent-phase: 6
+      parameters:
+        - $ref: "#/components/parameters/MemoryId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemoryRequest"
+      responses:
+        "200":
+          description: 更新后的记忆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+    delete:
+      tags: [Agent]
+      operationId: deleteMemory
+      summary: 软删除一条记忆
+      description: 删除后该记忆不再被列表或 Context Builder 读取；重复删除返回 200。
+      x-person-agent-phase: 6
+      parameters:
+        - $ref: "#/components/parameters/MemoryId"
+      responses:
+        "200":
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteMemoryResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/agent/messages:
     post:
       tags: [Agent]
@@ -826,6 +933,13 @@ components:
         maxLength: 200
     ConversationId:
       name: conversationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MemoryId:
+      name: memoryId
       in: path
       required: true
       schema:
@@ -1676,6 +1790,87 @@ components:
           enum: [paper, task, idea, lecture, approval]
         id: { type: string }
         title: { type: string }
+
+    AgentMemory:
+      type: object
+      additionalProperties: false
+      required: [id, kind, content, sourceType, sourceId, confidence, importance, validUntil, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [preference, fact, experience, correction]
+        content: { type: string }
+        sourceType:
+          type: string
+          enum: [explicit_user, conversation, domain_object]
+        sourceId: { type: [string, "null"] }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        importance: { type: integer, minimum: 1, maximum: 5 }
+        validUntil: { type: [string, "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    CreateMemoryRequest:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        kind:
+          type: string
+          enum: [preference, fact, experience, correction]
+          default: preference
+        content: { type: string, minLength: 1, maxLength: 1000 }
+        sourceType:
+          type: string
+          enum: [explicit_user, conversation, domain_object]
+          default: explicit_user
+        sourceId: { type: [string, "null"], maxLength: 200 }
+        importance: { type: integer, minimum: 1, maximum: 5, default: 3 }
+        validUntil: { type: [string, "null"] }
+
+    UpdateMemoryRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        kind:
+          type: string
+          enum: [preference, fact, experience, correction]
+        content: { type: string, minLength: 1, maxLength: 1000 }
+        importance: { type: integer, minimum: 1, maximum: 5 }
+        validUntil: { type: [string, "null"] }
+
+    MemoryListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/AgentMemory" }
+
+    MemoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [memory]
+          properties:
+            memory: { $ref: "#/components/schemas/AgentMemory" }
+            created:
+              type: boolean
+              description: 新建为 true，合并到已有记忆为 false
+
+    DeleteMemoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [memoryId, deleted]
+          properties:
+            memoryId: { type: string }
+            deleted: { type: boolean, const: true }
+            memory: { $ref: "#/components/schemas/AgentMemory" }
 
     AgentMessageResponse:
       allOf:

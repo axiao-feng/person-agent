@@ -147,6 +147,39 @@ Check("Agent message response carries the continued conversation id and new rows
     Equal("第二轮回答", parsed.Answer, "answer");
 });
 
+Check("Memory JSON maps to the settings view model fields", () =>
+{
+    const string json = """
+        {
+          "items": [
+            {
+              "id": "memory-1",
+              "kind": "preference",
+              "content": "偏好上午阅读论文",
+              "sourceType": "explicit_user",
+              "sourceId": null,
+              "confidence": 1,
+              "importance": 5,
+              "validUntil": null,
+              "createdAt": "2026-11-04T02:00:00.000Z",
+              "updatedAt": "2026-11-04T02:00:00.000Z"
+            }
+          ]
+        }
+        """;
+    var options = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    var parsed = JsonSerializer.Deserialize<MemoryListResponse>(json, options);
+    if (parsed is null || parsed.Items.Count != 1) throw new InvalidOperationException("memory list did not deserialize");
+    Equal("memory-1", parsed.Items[0].Id, "memory id");
+    Equal("preference", parsed.Items[0].Kind, "memory kind");
+    Equal(5, parsed.Items[0].Importance, "importance");
+    Equal("explicit_user", parsed.Items[0].SourceType, "source type");
+});
+
 if (failures.Count > 0)
 {
     Console.Error.WriteLine($"{failures.Count} desktop contract test(s) failed:");

@@ -287,6 +287,31 @@ test("a long conversation is trimmed to budget and the earlier part is summarize
   });
 });
 
+test("confirmed memories are injected into the next request", async () => {
+  await withConversationHarness(async (harness) => {
+    harness.database.createAgentMemory(
+      { kind: "preference", content: "偏好上午阅读论文", sourceType: "explicit_user", importance: 5 },
+      NOW,
+    );
+    harness.faux.setResponses([fauxAssistantMessage(fauxText("记住了"))]);
+    const turn = await runConversationTurn({
+      database: harness.database,
+      message: "今天读什么",
+      createAgent: harness.createAgent,
+      now: NOW,
+    });
+    assert.equal(turn.answer, "记住了");
+    assert.equal(turn.context?.memoryIds.length, 1);
+    const request = harness.requests.at(-1) ?? [];
+    assert.ok(
+      request.some(
+        (message) => message.role === "system" && String(message.content).includes("偏好上午阅读论文"),
+      ),
+      "the memory text appears in the assembled request",
+    );
+  });
+});
+
 test("a failing summary never fails the turn", async () => {
   await withConversationHarness(async (harness) => {
     const conversation = harness.database.createAgentConversation("摘要失败", NOW);

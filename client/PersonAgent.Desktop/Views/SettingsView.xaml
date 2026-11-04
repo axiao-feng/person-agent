@@ -145,6 +145,92 @@
                 </TextBlock>
             </StackPanel>
 
+            <TextBlock Text="长期记忆" Style="{StaticResource SectionTitle}" Margin="0,22,0,10" />
+            <Border Style="{StaticResource CardBorder}" Padding="16">
+                <StackPanel>
+                    <TextBlock Text="只有你明确要求记住的信息，或明确纠正过的事实才会写入。记忆会随每次提问进入上下文；删除后立即不再可用。"
+                               Style="{StaticResource MutedText}" />
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Grid.Column="0" Height="30" Margin="0,0,8,0" VerticalContentAlignment="Center"
+                                  ItemsSource="{Binding MemoryKinds}"
+                                  SelectedItem="{Binding SelectedMemoryKind}"
+                                  DisplayMemberPath="Label"
+                                  AutomationProperties.Name="记忆类型" />
+                        <TextBox Grid.Column="1" Height="30" VerticalContentAlignment="Center"
+                                 Text="{Binding MemoryDraft, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="例如：偏好上午阅读论文"
+                                 AutomationProperties.Name="新的记忆内容" />
+                        <Button Grid.Column="2" Content="记住" Style="{StaticResource ToolButton}"
+                                Command="{Binding AddMemoryCommand}" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding MemoryMessage}" Margin="0,8,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding HasMemoryMessage, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource Brush.Green}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMemoryError}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource Brush.Red}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <TextBlock Text="还没有保存任何长期记忆。" Style="{StaticResource MutedText}" Margin="0,10,0,0"
+                               Visibility="{Binding HasNoMemories, Converter={StaticResource BoolToVisibility}}" />
+
+                    <ItemsControl ItemsSource="{Binding Memories}" Margin="0,10,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource Brush.SurfaceAlt}" CornerRadius="8"
+                                        Padding="10,8" Margin="0,0,0,6">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Content}" TextWrapping="Wrap"
+                                                       Visibility="{Binding ShowContent, Converter={StaticResource BoolToVisibility}}" />
+                                            <TextBox Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                                                     Height="30" VerticalContentAlignment="Center"
+                                                     Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}" />
+                                            <TextBlock Text="{Binding MetaText}" Style="{StaticResource MutedText}"
+                                                       Margin="0,4,0,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                            <Button Content="编辑" Style="{StaticResource ToolButton}" Margin="0,0,6,0"
+                                                    Command="{Binding DataContext.EditMemoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Visibility="{Binding CanEdit, Converter={StaticResource BoolToVisibility}}" />
+                                            <Button Content="保存" Style="{StaticResource ToolButton}" Margin="0,0,6,0"
+                                                    Command="{Binding DataContext.SaveMemoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}" />
+                                            <Button Content="取消" Style="{StaticResource ToolButton}" Margin="0,0,6,0"
+                                                    Command="{Binding DataContext.CancelEditMemoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}" />
+                                            <Button Content="删除" Style="{StaticResource ToolButton}"
+                                                    Command="{Binding DataContext.DeleteMemoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Visibility="{Binding CanEdit, Converter={StaticResource BoolToVisibility}}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
             <TextBlock Text="本地服务" Style="{StaticResource SectionTitle}" Margin="0,22,0,10" />
             <Border Style="{StaticResource CardBorder}" Padding="16">
                 <StackPanel>

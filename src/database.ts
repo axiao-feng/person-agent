@@ -244,6 +244,53 @@ export type AgentSummaryInput = {
   model?: string;
 };
 
+export type AgentMemoryKind = "preference" | "fact" | "experience" | "correction";
+export type AgentMemorySourceType = "explicit_user" | "conversation" | "domain_object";
+
+export type AgentMemory = {
+  id: string;
+  kind: AgentMemoryKind;
+  content: string;
+  sourceType: AgentMemorySourceType;
+  sourceId: string | null;
+  confidence: number;
+  importance: number;
+  validUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type AgentMemoryInput = {
+  kind: AgentMemoryKind;
+  content: string;
+  sourceType: AgentMemorySourceType;
+  sourceId?: string;
+  confidence?: number;
+  importance?: number;
+  validUntil?: string;
+};
+
+export type AgentMemoryPatch = {
+  kind?: AgentMemoryKind;
+  content?: string;
+  importance?: number;
+  validUntil?: string | null;
+};
+
+export const AGENT_MEMORY_KINDS: readonly AgentMemoryKind[] = [
+  "preference",
+  "fact",
+  "experience",
+  "correction",
+];
+
+export const AGENT_MEMORY_SOURCE_TYPES: readonly AgentMemorySourceType[] = [
+  "explicit_user",
+  "conversation",
+  "domain_object",
+];
+
 export const AGENT_MESSAGE_SCHEMA_VERSION = 1;
 export const AGENT_CONVERSATION_TITLE_MAX = 120;
 
@@ -1383,6 +1430,135 @@ export class AppDatabase {
     return parseAgentSummary(row);
   }
 
+  /** Explicit long-term memory. Duplicate active content is merged instead of duplicated. */
+  createAgentMemory(input: AgentMemoryInput, now = new Date()): { memory: AgentMemory; created: boolean } {
+    const kind = assertMemoryKind(input.kind);
+    const content = requiredText(input.content, "记忆内容", 1_000);
+    const sourceType = assertMemorySourceType(input.sourceType);
+    const sourceId = optionalText(input.sourceId, 200);
+    const importance = input.importance ?? 3;
+    if (!Number.isInteger(importance) || importance < 1 || importance > 5) {
+      throw new Error("记忆重要度必须是 1 到 5 的整数。");
+    }
+    const confidence = input.confidence ?? 1;
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new Error("记忆置信度必须在 0 到 1 之间。");
+    }
+    const validUntil = input.validUntil ? parseInstant(input.validUntil).toISOString() : null;
+    const normalized = normalizeMemoryContent(content);
+
+    return this.transaction(() => {
+      const existing = this.sqlite
+        .prepare(
+          `SELECT * FROM agent_memories
+           WHERE kind = ? AND deleted_at IS NULL AND lower(trim(content)) = ?
+           LIMIT 1`,
+        )
+        .get(kind, normalized) as Row | undefined;
+      if (existing) {
+        const current = parseAgentMemory(existing);
+        this.sqlite
+          .prepare("UPDATE agent_memories SET importance = ?, updated_at = ? WHERE id = ?")
+          .run(Math.max(current.importance, importance), now.toISOString(), current.id);
+        return { memory: this.getAgentMemoryRequired(current.id), created: false };
+      }
+      const id = randomUUID();
+      this.sqlite
+        .prepare(
+          `INSERT INTO agent_memories
+           (id, kind, content, source_type, source_id, confidence, importance, valid_until,
+            created_at, updated_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        )
+        .run(
+          id,
+          kind,
+          content,
+          sourceType,
+          sourceId ?? null,
+          confidence,
+          importance,
+          validUntil,
+          now.toISOString(),
+          now.toISOString(),
+        );
+      return { memory: this.getAgentMemoryRequired(id), created: true };
+    });
+  }
+
+  getAgentMemory(id: string): AgentMemory | undefined {
+    const row = this.sqlite.prepare("SELECT * FROM agent_memories WHERE id = ?").get(id) as Row | undefined;
+    return row ? parseAgentMemory(row) : undefined;
+  }
+
+  /** Active memories ordered by importance, then recency. Expired rows are excluded. */
+  listAgentMemories(
+    options: { kind?: AgentMemoryKind; query?: string; limit?: number; now?: Date } = {},
+  ): AgentMemory[] {
+    const limit = options.limit ?? 50;
+    const nowIso = (options.now ?? new Date()).toISOString();
+    const conditions = ["deleted_at IS NULL", "(valid_until IS NULL OR valid_until > ?)"];
+    const parameters: (string | number)[] = [nowIso];
+    if (options.kind) {
+      conditions.push("kind = ?");
+      parameters.push(options.kind);
+    }
+    if (options.query?.trim()) {
+      conditions.push("content LIKE ?");
+      parameters.push(`%${options.query.trim()}%`);
+    }
+    parameters.push(limit);
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM agent_memories
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY importance DESC, updated_at DESC
+         LIMIT ?`,
+      )
+      .all(...parameters);
+    return (rows as Row[]).map(parseAgentMemory);
+  }
+
+  updateAgentMemory(id: string, patch: AgentMemoryPatch, now = new Date()): AgentMemory {
+    const memory = this.getAgentMemoryRequired(id);
+    if (memory.deletedAt) throw new Error("已删除的记忆不能修改。");
+    const kind = patch.kind === undefined ? memory.kind : assertMemoryKind(patch.kind);
+    const content =
+      patch.content === undefined ? memory.content : requiredText(patch.content, "记忆内容", 1_000);
+    const importance = patch.importance ?? memory.importance;
+    if (!Number.isInteger(importance) || importance < 1 || importance > 5) {
+      throw new Error("记忆重要度必须是 1 到 5 的整数。");
+    }
+    const validUntil =
+      patch.validUntil === undefined
+        ? memory.validUntil
+        : patch.validUntil === null
+          ? null
+          : parseInstant(patch.validUntil).toISOString();
+    this.sqlite
+      .prepare(
+        "UPDATE agent_memories SET kind = ?, content = ?, importance = ?, valid_until = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(kind, content, importance, validUntil, now.toISOString(), id);
+    return this.getAgentMemoryRequired(id);
+  }
+
+  /** Soft delete: the row stays for auditability but is never returned again. */
+  deleteAgentMemory(id: string, now = new Date()): AgentMemory {
+    const memory = this.getAgentMemoryRequired(id);
+    if (memory.deletedAt) return memory;
+    this.sqlite
+      .prepare("UPDATE agent_memories SET deleted_at = ?, updated_at = ? WHERE id = ?")
+      .run(now.toISOString(), now.toISOString(), id);
+    return this.getAgentMemoryRequired(id);
+  }
+
+  private getAgentMemoryRequired(id: string): AgentMemory {
+    const memory = this.getAgentMemory(id);
+    if (!memory) throw new Error(`找不到记忆：${id}`);
+    return memory;
+  }
+
   private getAgentConversationRequired(id: string): AgentConversation {
     const conversation = this.getAgentConversation(id);
     if (!conversation) throw new Error(`找不到会话：${id}`);
@@ -1655,6 +1831,21 @@ export class AppDatabase {
       );
       CREATE INDEX IF NOT EXISTS agent_summaries_conversation_idx
         ON agent_summaries(conversation_id, created_at);
+      CREATE TABLE IF NOT EXISTS agent_memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('preference', 'fact', 'experience', 'correction')),
+        content TEXT NOT NULL,
+        source_type TEXT NOT NULL CHECK (source_type IN ('explicit_user', 'conversation', 'domain_object')),
+        source_id TEXT,
+        confidence REAL NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+        importance INTEGER NOT NULL CHECK (importance BETWEEN 1 AND 5),
+        valid_until TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS agent_memories_active_idx
+        ON agent_memories(deleted_at, importance, updated_at);
     `);
     const lectureColumns = this.sqlite.prepare("PRAGMA table_info(lectures)").all() as Row[];
     if (!lectureColumns.some((column) => String(column.name) === "requires_presentation")) {
@@ -1854,6 +2045,40 @@ function parseAgentSummary(row: Row): AgentSummary {
     supersededBy: nullableString(row.superseded_by),
     createdAt: String(row.created_at),
   };
+}
+
+function parseAgentMemory(row: Row): AgentMemory {
+  return {
+    id: String(row.id),
+    kind: String(row.kind) as AgentMemoryKind,
+    content: String(row.content),
+    sourceType: String(row.source_type) as AgentMemorySourceType,
+    sourceId: nullableString(row.source_id),
+    confidence: Number(row.confidence),
+    importance: Number(row.importance),
+    validUntil: nullableString(row.valid_until),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    deletedAt: nullableString(row.deleted_at),
+  };
+}
+
+function assertMemoryKind(value: string): AgentMemoryKind {
+  if (!AGENT_MEMORY_KINDS.includes(value as AgentMemoryKind)) {
+    throw new Error(`记忆类型无效：${value}`);
+  }
+  return value as AgentMemoryKind;
+}
+
+function assertMemorySourceType(value: string): AgentMemorySourceType {
+  if (!AGENT_MEMORY_SOURCE_TYPES.includes(value as AgentMemorySourceType)) {
+    throw new Error(`记忆来源无效：${value}`);
+  }
+  return value as AgentMemorySourceType;
+}
+
+function normalizeMemoryContent(content: string): string {
+  return content.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function parseOperation(row: Row): Operation {

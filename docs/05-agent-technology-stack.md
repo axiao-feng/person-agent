@@ -1,6 +1,6 @@
 # Person Agent 新增 Agent 能力技术栈
 
-> 文档状态：v0.4.0 已实现 P0（多轮会话）；v0.5.0 已实现 P1 Context Builder；记忆、Workflow、权限与引用待实现
+> 文档状态：P0 会话（v0.4.0）、Context Builder（v0.5.0）与长期记忆（v0.6.0）已实现；工作记忆、Workflow、权限与引用待实现
 >
 > 对应需求：`PRODUCT_DESIGN.md` 第 16 节
 >
@@ -186,7 +186,16 @@ Context Builder 按固定顺序组装：
 
 每次模型调用仅记录上下文来源清单和对象 ID，不在普通日志复制完整邮件、论文正文或私密消息。
 
-## 5. P1：分层记忆
+## 5. P1：分层记忆（长期记忆 v0.6.0 已实现；工作记忆未实现）
+
+### 5.0 实现状态
+
+- `agent_memories` 表：kind、content、source、confidence、importance、valid_until、软删除。
+- 写入只经两条路径：用户明确要求时的 `remember_user_fact` 工具，或设置页/API 手动新增；相同内容合并。
+- 注入：每轮最多 20 条生效记忆，按重要度与更新时间排序，`ContextManifest.memoryIds` 记录本轮使用情况。
+- 检索：kind / 关键词 / 有效期 SQL；未引入 FTS5 或向量库。
+- 删除：软删除，列表与 Context Builder 都不再读取。
+- 工作记忆（当前目标/步骤）仍未实现，将与持久 Workflow Run 一起设计。
 
 ### 5.1 三层映射
 
@@ -391,7 +400,7 @@ type ToolPolicy = {
 
 1. `transformContext` 接入 Context Builder。（v0.5.0 已完成）
 2. 历史裁剪和可追溯摘要。（v0.5.0 已完成）
-3. 显式长期记忆及查看、编辑、删除。（待实现）
+3. 显式长期记忆及查看、编辑、删除。（v0.6.0 已完成）
 4. 基于真实用例建立上下文/记忆评测，再决定是否启用 FTS5。（待实现）
 
 ### 第三批：P1 Workflow 恢复

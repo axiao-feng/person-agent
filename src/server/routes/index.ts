@@ -6,6 +6,7 @@ import { conversationRoutes } from "./conversations.js";
 import { ideaRoutes } from "./ideas.js";
 import { knowledgeRoutes } from "./knowledge.js";
 import { lectureRoutes } from "./lectures.js";
+import { memoryRoutes } from "./memories.js";
 import { paperRoutes } from "./papers.js";
 import { searchRoutes } from "./search.js";
 import { settingsRoutes } from "./settings.js";
@@ -27,4 +28,5 @@ export const routes: Route[] = [
   ...searchRoutes,
   ...conversationRoutes,
   ...agentRoutes,
+  ...memoryRoutes,
 ];

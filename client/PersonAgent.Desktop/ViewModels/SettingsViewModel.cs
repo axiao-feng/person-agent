@@ -27,6 +27,52 @@ public sealed class ConnectionViewModel
     public bool IsAvailable => State == "available";
 }
 
+public sealed record MemoryKindOption(string Value, string Label);
+
+public sealed class MemoryItemViewModel : ObservableObject
+{
+    private bool _isEditing;
+    private string _editText;
+
+    public MemoryItemViewModel(AgentMemoryDto memory, string timezone)
+    {
+        Id = memory.Id;
+        Kind = memory.Kind;
+        Content = memory.Content;
+        KindText = SettingsViewModel.MemoryKindLabel(memory.Kind);
+        Importance = memory.Importance;
+        _editText = memory.Content;
+        MetaText = $"{KindText} · 重要度 {memory.Importance} · 更新于 {DisplayText.DateAndTime(memory.UpdatedAt, timezone)}";
+    }
+
+    public string Id { get; }
+    public string Kind { get; }
+    public string Content { get; }
+    public string KindText { get; }
+    public int Importance { get; }
+    public string MetaText { get; }
+
+    public bool IsEditing
+    {
+        get => _isEditing;
+        set
+        {
+            if (!SetProperty(ref _isEditing, value)) return;
+            OnPropertyChanged(nameof(CanEdit));
+            OnPropertyChanged(nameof(ShowContent));
+        }
+    }
+
+    public bool CanEdit => !IsEditing;
+    public bool ShowContent => !IsEditing;
+
+    public string EditText
+    {
+        get => _editText;
+        set => SetProperty(ref _editText, value);
+    }
+}
+
 public sealed class SettingsViewModel : PageViewModelBase
 {
     private readonly Func<LocalApiClient?> _clientProvider;
@@ -46,20 +92,98 @@ public sealed class SettingsViewModel : PageViewModelBase
     private bool _isSaving;
     private string _saveMessage = "";
     private bool _isSaveError;
+    private string _memoryDraft = "";
+    private MemoryKindOption? _selectedMemoryKind;
+    private string _memoryMessage = "";
+    private bool _isMemoryError;
 
     public SettingsViewModel(Func<LocalApiClient?> clientProvider, Action openDiagnostics)
     {
         _clientProvider = clientProvider;
         _openDiagnostics = openDiagnostics;
+        MemoryKinds = new[]
+        {
+            new MemoryKindOption("preference", "偏好"),
+            new MemoryKindOption("fact", "事实"),
+            new MemoryKindOption("experience", "经验"),
+            new MemoryKindOption("correction", "纠正"),
+        };
+        _selectedMemoryKind = MemoryKinds[0];
         RefreshCommand = new AsyncRelayCommand(() => LoadAsync(refresh: true));
         SaveCommand = new AsyncRelayCommand(SaveAsync);
         DiagnosticsCommand = new RelayCommand(_openDiagnostics);
+        AddMemoryCommand = new AsyncRelayCommand(AddMemoryAsync);
+        EditMemoryCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is MemoryItemViewModel memory) BeginEdit(memory);
+        });
+        CancelEditMemoryCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is MemoryItemViewModel memory) memory.IsEditing = false;
+        });
+        SaveMemoryCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is MemoryItemViewModel memory) _ = SaveMemoryAsync(memory);
+        });
+        DeleteMemoryCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is MemoryItemViewModel memory) _ = DeleteMemoryAsync(memory);
+        });
     }
 
     public ObservableCollection<ConnectionViewModel> Connections { get; } = new();
+    public ObservableCollection<MemoryItemViewModel> Memories { get; } = new();
+    public IReadOnlyList<MemoryKindOption> MemoryKinds { get; }
     public ICommand RefreshCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand DiagnosticsCommand { get; }
+    public ICommand AddMemoryCommand { get; }
+    public ICommand EditMemoryCommand { get; }
+    public ICommand CancelEditMemoryCommand { get; }
+    public ICommand SaveMemoryCommand { get; }
+    public ICommand DeleteMemoryCommand { get; }
+
+    public bool HasMemories => Memories.Count > 0;
+    public bool HasNoMemories => Memories.Count == 0;
+
+    public string MemoryDraft
+    {
+        get => _memoryDraft;
+        set => SetProperty(ref _memoryDraft, value);
+    }
+
+    public MemoryKindOption? SelectedMemoryKind
+    {
+        get => _selectedMemoryKind;
+        set => SetProperty(ref _selectedMemoryKind, value);
+    }
+
+    public string MemoryMessage
+    {
+        get => _memoryMessage;
+        private set
+        {
+            if (SetProperty(ref _memoryMessage, value)) OnPropertyChanged(nameof(HasMemoryMessage));
+        }
+    }
+
+    public bool HasMemoryMessage => !string.IsNullOrWhiteSpace(MemoryMessage);
+
+    public bool IsMemoryError
+    {
+        get => _isMemoryError;
+        private set => SetProperty(ref _isMemoryError, value);
+    }
+
+    public static string MemoryKindLabel(string kind) => kind switch
+    {
+        "preference" => "偏好",
+        "fact" => "事实",
+        "experience" => "经验",
+        "correction" => "纠正",
+        _ => kind,
+    };
+
 
     public string Timezone
     {
@@ -186,6 +310,7 @@ public sealed class SettingsViewModel : PageViewModelBase
             {
                 WorkerStatus = "后台任务状态未知";
             }
+            await LoadMemoriesAsync();
             HasData = true;
         }
         catch (Exception error)
@@ -235,8 +360,7 @@ public sealed class SettingsViewModel : PageViewModelBase
 
     private void Apply(Settings settings)
     {
-        Timezone = settings.Timezone;
-        VaultPath = settings.KnowledgeVaultPath;
+        Timezone = settings.Timezone;        VaultPath = settings.KnowledgeVaultPath;
         BriefingEnabled = settings.Automations.Briefing.Enabled;
         BriefingTime = settings.Automations.Briefing.Time;
         DigestEnabled = settings.Automations.KnowledgeDigest.Enabled;
@@ -259,6 +383,101 @@ public sealed class SettingsViewModel : PageViewModelBase
         return setting.LastRunAt is null
             ? $"上次：{result}"
             : $"上次：{result} · {DisplayText.DateAndTime(setting.LastRunAt, timezone)}";
+    }
+
+    private async Task LoadMemoriesAsync()
+    {
+        var client = _clientProvider();
+        if (client is null) return;
+        try
+        {
+            var response = await client.GetMemoriesAsync();
+            Memories.Clear();
+            foreach (var memory in response.Items)
+            {
+                Memories.Add(new MemoryItemViewModel(memory, Timezone));
+            }
+            OnPropertyChanged(nameof(HasMemories));
+            OnPropertyChanged(nameof(HasNoMemories));
+        }
+        catch (Exception error)
+        {
+            IsMemoryError = true;
+            MemoryMessage = $"无法读取长期记忆：{error.Message}";
+        }
+    }
+
+    private async Task AddMemoryAsync()
+    {
+        var client = _clientProvider();
+        var content = MemoryDraft.Trim();
+        if (client is null || content.Length == 0) return;
+        IsMemoryError = false;
+        MemoryMessage = "";
+        try
+        {
+            var kind = SelectedMemoryKind?.Value ?? "preference";
+            var response = await client.CreateMemoryAsync(kind, content, 3);
+            MemoryDraft = "";
+            MemoryMessage = response.Created ? "已记住。" : "同样的内容已存在，已合并。";
+            await LoadMemoriesAsync();
+        }
+        catch (Exception error)
+        {
+            IsMemoryError = true;
+            MemoryMessage = DescribeError(error);
+        }
+    }
+
+    private void BeginEdit(MemoryItemViewModel memory)
+    {
+        memory.EditText = memory.Content;
+        memory.IsEditing = true;
+        MemoryMessage = "";
+    }
+
+    private async Task SaveMemoryAsync(MemoryItemViewModel memory)
+    {
+        var client = _clientProvider();
+        var content = memory.EditText.Trim();
+        if (client is null || content.Length == 0)
+        {
+            IsMemoryError = true;
+            MemoryMessage = "记忆内容不能为空。";
+            return;
+        }
+        IsMemoryError = false;
+        MemoryMessage = "";
+        try
+        {
+            await client.UpdateMemoryAsync(memory.Id, content, null, null);
+            await LoadMemoriesAsync();
+            MemoryMessage = "记忆已更新。";
+        }
+        catch (Exception error)
+        {
+            IsMemoryError = true;
+            MemoryMessage = DescribeError(error);
+        }
+    }
+
+    private async Task DeleteMemoryAsync(MemoryItemViewModel memory)
+    {
+        var client = _clientProvider();
+        if (client is null) return;
+        IsMemoryError = false;
+        MemoryMessage = "";
+        try
+        {
+            await client.DeleteMemoryAsync(memory.Id);
+            await LoadMemoriesAsync();
+            MemoryMessage = "记忆已删除，后续提问不会再使用它。";
+        }
+        catch (Exception error)
+        {
+            IsMemoryError = true;
+            MemoryMessage = DescribeError(error);
+        }
     }
 
     private static string NextText(AutomationSetting setting, string timezone)

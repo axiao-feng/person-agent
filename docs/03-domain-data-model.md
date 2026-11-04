@@ -40,6 +40,8 @@ agent_conversations ──< agent_messages
                        (conversation_id, sequence 唯一)
                 └──< agent_summaries
                        (superseded_by 为空表示当前生效)
+
+agent_memories                # 用户明确保存的长期记忆（软删除）
 config.json                   # 用户配置，不在 SQLite
 secrets.dpapi                 # 加密凭据，不在 SQLite
 ```
@@ -232,6 +234,29 @@ Agent 消息轨迹。这里保存的是 `pi-agent-core` 的 `AgentMessage` 原�
 
 规则：同一会话最多有一条 `superseded_by IS NULL` 的摘要；新摘要覆盖范围必须紧接上一条的 `to_sequence`；摘要只覆盖最新的 `SUMMARY_KEEP_RECENT` 条之外的消息。
 
+### 3.11 `agent_memories`
+
+用户明确保存的长期记忆（v0.6.0）。
+
+| 字段 | 类型 | 约束/语义 |
+| --- | --- | --- |
+| `id` | TEXT | UUID，主键 |
+| `kind` | TEXT | `preference / fact / experience / correction` |
+| `content` | TEXT | 一句话记忆，最多 1000 字 |
+| `source_type` | TEXT | `explicit_user / conversation / domain_object` |
+| `source_id` | TEXT | 来源对象或消息 ID，可空 |
+| `confidence` | REAL | 0–1，当前默认 1 |
+| `importance` | INTEGER | 1–5，默认 3，影响注入顺序 |
+| `valid_until` | TEXT | 可空；过期后不再注入 |
+| `created_at` / `updated_at` | TEXT | UTC |
+| `deleted_at` | TEXT | 软删除时间；非空即不可读写 |
+
+写入规则：
+
+- 同一 `kind` 且规范化内容（去空白、小写）相同的生效记忆会合并，重要度取较大值。
+- 模型只有 `remember_user_fact` 一个新增入口，且只在用户明确要求记住或纠正时调用。
+- 删除由用户通过 API 或设置页执行；软删除后列表、搜索、Context Builder 都不再读取。
+
 ## 4. 非 SQLite 数据
 
 ### 4.1 `config.json`
@@ -396,6 +421,7 @@ UI 推导状态：
 - `agent_conversations_status_idx(status, updated_at)`
 - `agent_messages_conversation_idx(conversation_id, sequence)`
 - `agent_summaries_conversation_idx(conversation_id, created_at)`
+- `agent_memories_active_idx(deleted_at, importance, updated_at)`
 
 迁移规则：
 

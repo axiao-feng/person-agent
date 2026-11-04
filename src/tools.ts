@@ -406,6 +406,34 @@ const localToolModule: ToolModule = (context) => [
     parameters: Type.Object({ id: Type.String({ minLength: 1 }) }),
     execute: async (_id, params) => jsonResult(context.database.cancelReminder(params.id)),
   }),
+  defineTool({
+    name: "remember_user_fact",
+    label: "记住用户信息",
+    description:
+      "把用户明确要求“记住”的稳定偏好、事实或纠正保存为长期记忆。只有用户明确要求记住或纠正时才可调用；邮件、论文结论和一次性任务不得写成长期记忆。重复内容会合并而不是新建。",
+    executionMode: "sequential",
+    parameters: Type.Object({
+      kind: Type.Union([
+        Type.Literal("preference"),
+        Type.Literal("fact"),
+        Type.Literal("experience"),
+        Type.Literal("correction"),
+      ]),
+      content: Type.String({ minLength: 1, maxLength: 1_000, description: "一句话记忆，必须是用户表达过的内容" }),
+      importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })),
+      validUntil: Type.Optional(Type.String({ description: "可选的带时区失效时间" })),
+    }),
+    execute: async (_id, params) => {
+      const result = context.database.createAgentMemory({
+        kind: params.kind,
+        content: params.content,
+        sourceType: "explicit_user",
+        ...(params.importance === undefined ? {} : { importance: params.importance }),
+        ...(params.validUntil === undefined ? {} : { validUntil: params.validUntil }),
+      });
+      return jsonResult(result);
+    },
+  }),
 ];
 
 function defineTool<T extends TSchema>(tool: AgentTool<T>): AgentTool<T> {

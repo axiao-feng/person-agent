@@ -425,3 +425,35 @@ public sealed class ConversationMessagesResponse
     public List<TranscriptMessage> Messages { get; set; } = new();
 }
 
+public sealed class AgentMemoryDto
+{
+    public string Id { get; set; } = "";
+    public string Kind { get; set; } = "preference";
+    public string Content { get; set; } = "";
+    public string SourceType { get; set; } = "explicit_user";
+    public string? SourceId { get; set; }
+    public double Confidence { get; set; }
+    public int Importance { get; set; }
+    public string? ValidUntil { get; set; }
+    public string CreatedAt { get; set; } = "";
+    public string UpdatedAt { get; set; } = "";
+}
+
+public sealed class MemoryListResponse
+{
+    public List<AgentMemoryDto> Items { get; set; } = new();
+}
+
+public sealed class MemoryResponse
+{
+    public AgentMemoryDto Memory { get; set; } = new();
+    public bool Created { get; set; }
+}
+
+public sealed class DeleteMemoryResponse
+{
+    public string MemoryId { get; set; } = "";
+    public bool Deleted { get; set; }
+    public AgentMemoryDto Memory { get; set; } = new();
+}
+

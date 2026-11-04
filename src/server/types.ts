@@ -263,4 +263,26 @@ export type AgentMessageResponse = ResponseMeta & {
   answer: string;
   references: AgentReferenceDto[];
   conversation: ConversationDto;
+  messages: TranscriptMessageDto[];
+};
+
+export type AgentMemoryDto = {
+  id: string;
+  kind: "preference" | "fact" | "experience" | "correction";
+  content: string;
+  sourceType: "explicit_user" | "conversation" | "domain_object";
+  sourceId: string | null;
+  confidence: number;
+  importance: number;
+  validUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemoryListResponse = ResponseMeta & {
+  items: AgentMemoryDto[];
+};
+
+export type MemoryResponse = ResponseMeta & {
+  memory: AgentMemoryDto;
 };
