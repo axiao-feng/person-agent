@@ -214,6 +214,36 @@ export type AgentTranscriptInput = {
   message: unknown;
 };
 
+export type AgentSummaryReference = {
+  type: string;
+  id: string;
+  title: string;
+};
+
+/** A compacted view of the older part of one conversation. Raw messages are never deleted. */
+export type AgentSummary = {
+  id: string;
+  conversationId: string;
+  fromSequence: number;
+  toSequence: number;
+  summary: string;
+  openQuestions: string[];
+  references: AgentSummaryReference[];
+  model: string | null;
+  supersededBy: string | null;
+  createdAt: string;
+};
+
+export type AgentSummaryInput = {
+  conversationId: string;
+  fromSequence: number;
+  toSequence: number;
+  summary: string;
+  openQuestions?: string[];
+  references?: AgentSummaryReference[];
+  model?: string;
+};
+
 export const AGENT_MESSAGE_SCHEMA_VERSION = 1;
 export const AGENT_CONVERSATION_TITLE_MAX = 120;
 
@@ -1284,6 +1314,75 @@ export class AppDatabase {
     return Number(row.total ?? 0);
   }
 
+  createAgentSummary(input: AgentSummaryInput, now = new Date()): AgentSummary {
+    this.getAgentConversationRequired(input.conversationId);
+    const id = randomUUID();
+    const summary = requiredText(input.summary, "会话摘要", 8_000);
+    if (!Number.isInteger(input.fromSequence) || !Number.isInteger(input.toSequence)) {
+      throw new Error("摘要覆盖范围必须是整数消息序号。");
+    }
+    if (input.fromSequence < 1 || input.toSequence < input.fromSequence) {
+      throw new Error("摘要覆盖范围无效。");
+    }
+    const openQuestions = (input.openQuestions ?? [])
+      .map((question) => question.trim())
+      .filter(Boolean)
+      .slice(0, 20);
+    const references = (input.references ?? []).slice(0, 50);
+    const model = input.model?.trim() ? input.model.trim().slice(0, 200) : null;
+    return this.transaction(() => {
+      this.sqlite
+        .prepare(
+          `INSERT INTO agent_summaries
+           (id, conversation_id, from_sequence, to_sequence, summary, open_questions_json,
+            references_json, model, superseded_by, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+        )
+        .run(
+          id,
+          input.conversationId,
+          input.fromSequence,
+          input.toSequence,
+          summary,
+          JSON.stringify(openQuestions),
+          JSON.stringify(references),
+          model,
+          now.toISOString(),
+        );
+      this.sqlite
+        .prepare(
+          `UPDATE agent_summaries SET superseded_by = ?
+           WHERE conversation_id = ? AND superseded_by IS NULL AND id != ?`,
+        )
+        .run(id, input.conversationId, id);
+      return this.getAgentSummaryRequired(id);
+    });
+  }
+
+  getActiveAgentSummary(conversationId: string): AgentSummary | undefined {
+    const row = this.sqlite
+      .prepare(
+        `SELECT * FROM agent_summaries
+         WHERE conversation_id = ? AND superseded_by IS NULL
+         ORDER BY to_sequence DESC, created_at DESC LIMIT 1`,
+      )
+      .get(conversationId) as Row | undefined;
+    return row ? parseAgentSummary(row) : undefined;
+  }
+
+  listAgentSummaries(conversationId: string): AgentSummary[] {
+    const rows = this.sqlite
+      .prepare("SELECT * FROM agent_summaries WHERE conversation_id = ? ORDER BY to_sequence")
+      .all(conversationId);
+    return (rows as Row[]).map(parseAgentSummary);
+  }
+
+  private getAgentSummaryRequired(id: string): AgentSummary {
+    const row = this.sqlite.prepare("SELECT * FROM agent_summaries WHERE id = ?").get(id) as Row | undefined;
+    if (!row) throw new Error(`找不到会话摘要：${id}`);
+    return parseAgentSummary(row);
+  }
+
   private getAgentConversationRequired(id: string): AgentConversation {
     const conversation = this.getAgentConversation(id);
     if (!conversation) throw new Error(`找不到会话：${id}`);
@@ -1542,6 +1641,20 @@ export class AppDatabase {
       );
       CREATE INDEX IF NOT EXISTS agent_messages_conversation_idx
         ON agent_messages(conversation_id, sequence);
+      CREATE TABLE IF NOT EXISTS agent_summaries (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES agent_conversations(id),
+        from_sequence INTEGER NOT NULL,
+        to_sequence INTEGER NOT NULL,
+        summary TEXT NOT NULL,
+        open_questions_json TEXT NOT NULL DEFAULT '[]',
+        references_json TEXT NOT NULL DEFAULT '[]',
+        model TEXT,
+        superseded_by TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS agent_summaries_conversation_idx
+        ON agent_summaries(conversation_id, created_at);
     `);
     const lectureColumns = this.sqlite.prepare("PRAGMA table_info(lectures)").all() as Row[];
     if (!lectureColumns.some((column) => String(column.name) === "requires_presentation")) {
@@ -1724,6 +1837,21 @@ function parseAgentTranscriptEntry(row: Row): AgentTranscriptEntry {
     role: String(row.role),
     schemaVersion: Number(row.schema_version ?? AGENT_MESSAGE_SCHEMA_VERSION),
     message: JSON.parse(String(row.message_json)) as unknown,
+    createdAt: String(row.created_at),
+  };
+}
+
+function parseAgentSummary(row: Row): AgentSummary {
+  return {
+    id: String(row.id),
+    conversationId: String(row.conversation_id),
+    fromSequence: Number(row.from_sequence),
+    toSequence: Number(row.to_sequence),
+    summary: String(row.summary),
+    openQuestions: JSON.parse(String(row.open_questions_json ?? "[]")) as string[],
+    references: JSON.parse(String(row.references_json ?? "[]")) as AgentSummaryReference[],
+    model: nullableString(row.model),
+    supersededBy: nullableString(row.superseded_by),
     createdAt: String(row.created_at),
   };
 }

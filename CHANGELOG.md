@@ -1,5 +1,39 @@
 # 更新日志
 
+## v0.5.0 — 2026-11-04
+
+实现 §16.8 的 P1：Context Builder（token 预算、历史裁剪、可追溯摘要）。
+
+### 新增
+
+**上下文组装**
+- 新增 `src/agent/tokens.ts`：保守的本地 token 估算（CJK 按字计、其余按 3 字符 1 token），不引入 tokenizer 依赖。
+- 新增 `src/agent/context.ts`：`buildConversationContext` 按 `系统规则 → 历史摘要 → 已确认长期记忆 → 最近消息` 组装每次模型请求；预算扣除工具声明与输出预留；裁剪只会落在用户轮次边界，不会留下孤立 toolResult。
+- 输出预留至少为模型窗口的 25%（或模型 maxTokens），由 `promptBudgetTokens` 统一计算。
+- 上下文紧张时先丢弃摘要与记忆注入，再丢弃历史，当前问题始终保留。
+- 每次请求产出 `ContextManifest`（预算、估算 token、保留/丢弃消息数、摘要 ID、记忆 ID），服务端写入 `agent_context` 日志，不记录正文。
+
+**历史摘要**
+- 新增 `agent_summaries` 表：覆盖的 sequence 范围、摘要正文、未解决问题、引用、模型、被替代版本。
+- `src/agent/summary.ts`：当积压消息超过 30 条时，用无工具的 `generateText` 路径压缩前段对话并保留最近 10 条原文；摘要失败只记录错误，不影响本轮回答，也不删除原始消息。
+- 摘要通过 `transformContext` 注入，并在下一轮复用。
+
+**测试与文档**
+- 新增 `test/context.test.ts`（8 项）与 2 项会话级测试：预算裁剪、toolResult 边界、摘要注入与预算紧张时丢弃注入、摘要覆盖范围与版本替代、摘要失败不影响回答。
+- `PRODUCT_DESIGN.md` §16.1–§16.3、`docs/01/03/05` 与 README 同步更新。
+
+### 验证
+
+- `pnpm test`：95 项通过（v0.4.0 为 85 项）。
+- `pnpm test:desktop`：6 项通过。
+- TypeScript 类型检查与 `dist` 构建通过；WPF Debug 构建 0 警告 0 错误。
+
+### 已知限制
+
+- 未配置 DeepSeek key，真实模型下的摘要生成未实测；摘要器由注入的 fake 生成器覆盖。
+- 长期记忆仍是空注入位；记忆表与检索在下一批次实现。
+- 触发阈值（30/10）是固定常量，尚未按真实使用情况调优。
+
 ## v0.4.0 — 2026-11-04
 
 实现 `PRODUCT_DESIGN.md` §16.8 的 P0：桌面端 Agent 会话与消息持久化，关闭客户端或本地服务后仍能继续同一对话。

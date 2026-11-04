@@ -38,6 +38,8 @@ knowledge_sync_state          # Zotero 增量游标等键值状态
 workflow_actions              # 固定 payload 的 Calendar 审批
 agent_conversations ──< agent_messages
                        (conversation_id, sequence 唯一)
+                └──< agent_summaries
+                       (superseded_by 为空表示当前生效)
 config.json                   # 用户配置，不在 SQLite
 secrets.dpapi                 # 加密凭据，不在 SQLite
 ```
@@ -212,6 +214,24 @@ Agent 消息轨迹。这里保存的是 `pi-agent-core` 的 `AgentMessage` 原�
 - 尾部未完成的 tool call 在下一次 prompt 前被丢弃，避免畸形 transcript。
 - 删除会话时同时删除消息；归档不等于删除。
 
+### 3.10 `agent_summaries`
+
+较早对话的压缩视图（v0.5.0）。原始消息永不因摘要而删除。
+
+| 字段 | 类型 | 约束/语义 |
+| --- | --- | --- |
+| `id` | TEXT | UUID，主键 |
+| `conversation_id` | TEXT | 外键指向 `agent_conversations(id)` |
+| `from_sequence` / `to_sequence` | INTEGER | 摘要覆盖的消息序号范围，闭区间 |
+| `summary` | TEXT | 摘要正文，不超过 8000 字 |
+| `open_questions_json` | TEXT | 仍未解决的问题数组 |
+| `references_json` | TEXT | 摘要引用的本地对象（当前为空） |
+| `model` | TEXT | 生成该摘要的模型，可空 |
+| `superseded_by` | TEXT | 被哪条新摘要替代；`NULL` 表示当前生效 |
+| `created_at` | TEXT | UTC |
+
+规则：同一会话最多有一条 `superseded_by IS NULL` 的摘要；新摘要覆盖范围必须紧接上一条的 `to_sequence`；摘要只覆盖最新的 `SUMMARY_KEEP_RECENT` 条之外的消息。
+
 ## 4. 非 SQLite 数据
 
 ### 4.1 `config.json`
@@ -375,6 +395,7 @@ UI 推导状态：
 - `operations_status_idx(status, created_at)`
 - `agent_conversations_status_idx(status, updated_at)`
 - `agent_messages_conversation_idx(conversation_id, sequence)`
+- `agent_summaries_conversation_idx(conversation_id, created_at)`
 
 迁移规则：
 

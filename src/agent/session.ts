@@ -4,10 +4,15 @@ import { createAssistant } from "../agent.js";
 import type { AppConfig } from "../config.js";
 import {
   type AgentConversation,
+  type AgentSummary,
   type AgentTranscriptEntry,
   AppDatabase,
 } from "../database.js";
 import type { AppPaths } from "../paths.js";
+import type { ContextManifest, ConversationContextOptions } from "./context.js";
+import { isStandardMessage } from "./message-text.js";
+import { type SummaryGenerator, refreshConversationSummary } from "./summary.js";
+export { messageText } from "./message-text.js";
 
 /** A local object an answer was actually derived from. Empty until P2 reference collection lands. */
 export type AgentReference = {
@@ -22,9 +27,16 @@ export type ConversationTurnResult = {
   references: AgentReference[];
   /** Messages persisted by this turn, including the user message. */
   messages: AgentTranscriptEntry[];
+  /** Manifest of the last model request in this turn, for debugging and tests. */
+  context: ContextManifest | null;
+  summaryId: string | null;
 };
 
-export type CreateConversationAgent = (history: AgentMessage[], conversationId: string) => Promise<Agent>;
+export type CreateConversationAgent = (
+  history: AgentMessage[],
+  conversationId: string,
+  context: ConversationContextOptions,
+) => Promise<Agent>;
 
 export type ConversationTurnOptions = {
   database: AppDatabase;
@@ -32,6 +44,14 @@ export type ConversationTurnOptions = {
   conversationId?: string;
   createAgent: CreateConversationAgent;
   now?: Date;
+  /** Enables history compaction after the turn. Omitted in tests that have no model. */
+  summary?: {
+    generate: SummaryGenerator;
+    onError?: (error: unknown) => void;
+  };
+  memories?: ConversationContextOptions["memories"];
+  budgetTokens?: number;
+  onContext?: (manifest: ContextManifest) => void;
 };
 
 export class ConversationNotFoundError extends Error {
@@ -60,7 +80,8 @@ export class AgentUnavailableError extends Error {
  *
  * The user message is written before the model call, every produced
  * assistant/tool message is written afterwards in a single transaction, and the
- * next turn replays the whole transcript as `initialState.messages`.
+ * next turn replays the stored transcript. Each model request is assembled by the
+ * Context Builder instead of sending the raw history unbounded.
  */
 export async function runConversationTurn(options: ConversationTurnOptions): Promise<ConversationTurnResult> {
   const now = options.now ?? new Date();
@@ -90,7 +111,19 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
     now,
   );
 
-  const agent = await options.createAgent(history, conversation.id);
+  const activeSummary = options.database.getActiveAgentSummary(conversation.id);
+  const manifests: ContextManifest[] = [];
+  const context: ConversationContextOptions = {
+    summary: activeSummary ? summaryContext(activeSummary) : null,
+    memories: options.memories ?? [],
+    ...(options.budgetTokens ? { budgetTokens: options.budgetTokens } : {}),
+    onRequest: (manifest) => {
+      manifests.push(manifest);
+      options.onContext?.(manifest);
+    },
+  };
+
+  const agent = await options.createAgent(history, conversation.id, context);
   const baseline = agent.state.messages.length;
   let produced: AgentMessage[] = [];
   try {
@@ -115,11 +148,29 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
     );
   }
 
+  let summaryId: string | null = null;
+  if (options.summary) {
+    try {
+      const summary = await refreshConversationSummary({
+        database: options.database,
+        conversationId: conversation.id,
+        generate: options.summary.generate,
+        now,
+      });
+      summaryId = summary?.id ?? null;
+    } catch (error) {
+      // Compaction is best-effort: a failed summary must not lose the answer.
+      options.summary.onError?.(error);
+    }
+  }
+
   return {
     conversation: options.database.getAgentConversation(conversation.id) ?? conversation,
     answer,
     references: [],
     messages: persisted,
+    context: manifests.at(-1) ?? null,
+    summaryId,
   };
 }
 
@@ -143,36 +194,15 @@ export function conversationAgentFactory(options: {
   config: AppConfig;
   database: AppDatabase;
 }): CreateConversationAgent {
-  return async (history, conversationId) =>
+  return async (history, conversationId, context) =>
     await createAssistant({
       paths: options.paths,
       config: options.config,
       database: options.database,
       ...(history.length > 0 ? { messages: history } : {}),
       sessionId: conversationId,
+      context,
     });
-}
-
-/** Display text for one transcript message; never includes raw tool payloads. */
-export function messageText(message: AgentMessage): string {
-  switch (message.role) {
-    case "user":
-      return textContent(message.content);
-    case "assistant": {
-      const text = textContent(message.content);
-      if (text) return text;
-      const calls = message.content
-        .filter((block): block is Extract<(typeof message.content)[number], { type: "toolCall" }> => block.type === "toolCall")
-        .map((call) => call.name);
-      return calls.length > 0 ? `（调用工具 ${calls.join("、")}）` : "";
-    }
-    case "toolResult":
-      return textContent(message.content);
-    case "system":
-      return typeof message.content === "string" ? message.content : textContent(message.content);
-    default:
-      return "";
-  }
 }
 
 export function conversationTitleFrom(text: string): string {
@@ -180,11 +210,15 @@ export function conversationTitleFrom(text: string): string {
   return single.length <= 40 ? single : `${single.slice(0, 39)}…`;
 }
 
+function summaryContext(summary: AgentSummary): NonNullable<ConversationContextOptions["summary"]> {
+  return { id: summary.id, text: summary.summary, toSequence: summary.toSequence };
+}
+
 function lastAssistantText(messages: AgentMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (message.role !== "assistant") continue;
-    const text = textContent(message.content).trim();
+    const text = textFrom(message).trim();
     if (text) return text;
   }
   return "";
@@ -196,7 +230,9 @@ function newAssistantMessages(produced: AgentMessage[]): AgentMessage[] {
   return rest;
 }
 
-function textContent(content: unknown): string {
+function textFrom(message: AgentMessage): string {
+  if (!isStandardMessage(message)) return "";
+  const content = message.content;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content

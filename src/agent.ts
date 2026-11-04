@@ -2,6 +2,7 @@ import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 
+import { contextTransform, estimateToolTokens, type ConversationContextOptions } from "./agent/context.js";
 import type { AppConfig } from "./config.js";
 import { AppDatabase } from "./database.js";
 import type { AppPaths } from "./paths.js";
@@ -20,23 +21,32 @@ export async function createAssistant(options: {
   /** Persisted transcript replayed before the new prompt. */
   messages?: AgentMessage[];
   sessionId?: string;
+  /** Enables token-budgeted context assembly for every model request. */
+  context?: ConversationContextOptions;
 }): Promise<Agent> {
   const models = await configuredModels(options.paths);
   const model = models.getModel("deepseek", "deepseek-flash");
   if (!model) throw new Error("pi-ai 中找不到 deepseek/deepseek-flash 模型。");
   const mode = options.mode ?? "chat";
+  const tools = buildTools(
+    { paths: options.paths, config: options.config, database: options.database },
+    mode,
+    options.extraToolModules ?? [],
+  );
+  const context = options.context;
+  const budgetTokens = context?.budgetTokens ?? promptBudgetTokens(model);
+  const toolTokens = context?.toolTokenEstimate ?? estimateToolTokens(tools.length);
   const agent = new Agent({
     initialState: {
       systemPrompt: systemPrompt(options.config, mode),
       model,
       thinkingLevel: options.config.thinkingLevel,
-      tools: buildTools(
-        { paths: options.paths, config: options.config, database: options.database },
-        mode,
-        options.extraToolModules ?? [],
-      ),
+      tools,
       ...(options.messages && options.messages.length > 0 ? { messages: options.messages } : {}),
     },
+    ...(context
+      ? { transformContext: contextTransform({ context, budgetTokens, toolTokens }) }
+      : {}),
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     streamFn: models.streamSimple.bind(models),
     toolExecution: "parallel",
@@ -51,8 +61,13 @@ export async function createAssistant(options: {
   return agent;
 }
 
-async function configuredModels(paths: AppPaths) {
-  const apiKey = await deepSeekApiKey(paths);
+/** Reserves at least 25% of the window (or the model's max output) for the reply and tool loop. */
+function promptBudgetTokens(model: { contextWindow: number; maxTokens?: number }): number {
+  const reserved = Math.max(model.maxTokens ?? 0, Math.floor(model.contextWindow * 0.25));
+  return Math.max(2_000, model.contextWindow - reserved);
+}
+
+async function configuredModels(paths: AppPaths) {  const apiKey = await deepSeekApiKey(paths);
   if (!apiKey) throw new Error("缺少 DeepSeek API key，请设置 DEEPSEEK_API_KEY 或重新运行 setup。");
   process.env.DEEPSEEK_API_KEY ||= apiKey;
   const models = createModels();

@@ -21,6 +21,7 @@ import {
   runConversationTurn,
   type CreateConversationAgent,
 } from "../src/agent/session.js";
+import { contextTransform } from "../src/agent/context.js";
 import { AppDatabase } from "../src/database.js";
 import { buildTools } from "../src/tools.js";
 
@@ -240,18 +241,92 @@ test("conversation titles come from the first message and stay bounded", () => {
   assert.equal(long.length <= 40, true);
 });
 
+test("a long conversation is trimmed to budget and the earlier part is summarized", async () => {
+  await withConversationHarness(async (harness) => {
+    const conversation = harness.database.createAgentConversation("长会话", NOW);
+    appendPairs(harness.database, conversation.id, 20); // 40 stored messages
+
+    harness.faux.setResponses([fauxAssistantMessage(fauxText("收到"))]);
+    const turn = await runConversationTurn({
+      database: harness.database,
+      conversationId: conversation.id,
+      message: "继续推进",
+      createAgent: harness.createAgent,
+      now: NOW,
+      budgetTokens: 300,
+      summary: { generate: async () => ({ summary: "前段摘要", openQuestions: ["还没确定时间"] }) },
+    });
+
+    assert.equal(turn.answer, "收到");
+    assert.ok(turn.context, "every model request reports a context manifest");
+    assert.ok(turn.context!.droppedMessages > 0, "the budget forces older messages out");
+    assert.equal(turn.context!.summaryId, null, "the first turn had no summary to inject yet");
+    assert.ok(turn.summaryId, "a summary is created after the backlog passes the threshold");
+
+    const summary = harness.database.getActiveAgentSummary(conversation.id);
+    assert.equal(summary?.fromSequence, 1);
+    assert.equal(summary?.toSequence, 42 - 10);
+    assert.equal(harness.database.countAgentMessages(conversation.id), 42, "raw messages are never deleted");
+
+    harness.faux.setResponses([fauxAssistantMessage(fauxText("第二轮"))]);
+    const second = await runConversationTurn({
+      database: harness.database,
+      conversationId: conversation.id,
+      message: "再问一句",
+      createAgent: harness.createAgent,
+      now: NOW,
+      budgetTokens: 300,
+      summary: { generate: async () => ({ summary: "不该生成", openQuestions: [] }) },
+    });
+    assert.equal(second.context?.summaryId, turn.summaryId, "the next request injects the stored summary");
+    const request = harness.requests.at(-1) ?? [];
+    const systemMessages = request.filter((message) => message.role === "system");
+    assert.ok(systemMessages.length >= 2, "system rules plus the summary are both present");
+    assert.match(String(systemMessages.at(-1)?.content), /较早对话摘要/);
+    assert.equal(harness.database.listAgentSummaries(conversation.id).length, 1);
+  });
+});
+
+test("a failing summary never fails the turn", async () => {
+  await withConversationHarness(async (harness) => {
+    const conversation = harness.database.createAgentConversation("摘要失败", NOW);
+    appendPairs(harness.database, conversation.id, 20);
+    harness.faux.setResponses([fauxAssistantMessage(fauxText("照常回答"))]);
+    const errors: unknown[] = [];
+    const turn = await runConversationTurn({
+      database: harness.database,
+      conversationId: conversation.id,
+      message: "继续",
+      createAgent: harness.createAgent,
+      now: NOW,
+      summary: {
+        generate: async () => {
+          throw new Error("model unavailable");
+        },
+        onError: (error) => errors.push(error),
+      },
+    });
+    assert.equal(turn.answer, "照常回答");
+    assert.equal(turn.summaryId, null);
+    assert.equal(errors.length, 1);
+    assert.equal(harness.database.getActiveAgentSummary(conversation.id), undefined);
+  });
+});
+
 type Harness = {
   database: AppDatabase;
   databasePath: string;
   faux: ReturnType<typeof fauxProvider>;
   createAgent: CreateConversationAgent;
   histories: AgentMessage[][];
+  /** Messages actually handed to the model, after the Context Builder ran. */
+  requests: AgentMessage[][];
 };
 
 async function withConversationHarness(operation: (harness: Harness) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "person-agent-conversation-test-"));
   const databasePath = join(root, "test.db");
-  let database = new AppDatabase(databasePath);
+  const database = new AppDatabase(databasePath);
   const faux = fauxProvider({ tokensPerSecond: 10_000 });
   const models = createModels();
   models.setProvider(faux.provider);
@@ -270,8 +345,14 @@ async function withConversationHarness(operation: (harness: Harness) => Promise<
     knowledgeDigestTime: "22:30",
   };
   const histories: AgentMessage[][] = [];
-  const createAgent: CreateConversationAgent = async (history) => {
+  const requests: AgentMessage[][] = [];
+  const createAgent: CreateConversationAgent = async (history, _conversationId, context) => {
     histories.push(history);
+    const transform = contextTransform({
+      context,
+      budgetTokens: context.budgetTokens ?? 100_000,
+      toolTokens: 0,
+    });
     return new Agent({
       initialState: {
         systemPrompt: "时间不明确时追问。",
@@ -279,6 +360,11 @@ async function withConversationHarness(operation: (harness: Harness) => Promise<
         thinkingLevel: "off",
         tools: buildTools({ paths, config, database }),
         ...(history.length > 0 ? { messages: history } : {}),
+      },
+      transformContext: async (messages: AgentMessage[]) => {
+        const built = await transform(messages);
+        requests.push(built);
+        return built;
       },
       streamFn: models.streamSimple.bind(models),
     });
@@ -289,6 +375,7 @@ async function withConversationHarness(operation: (harness: Harness) => Promise<
     faux,
     createAgent,
     histories,
+    requests,
   };
   try {
     await operation(harness);
@@ -302,8 +389,28 @@ async function withConversationHarness(operation: (harness: Harness) => Promise<
   }
 }
 
-function toolCallOf(message: AgentMessage | undefined): { id: string; name: string } {
-  if (message?.role !== "assistant") throw new Error("expected an assistant message");
+function appendPairs(database: AppDatabase, conversationId: string, pairs: number): void {
+  const entries = [];
+  const start = database.countAgentMessages(conversationId);
+  for (let index = 0; index < pairs; index += 1) {
+    entries.push({
+      role: "user",
+      message: { role: "user", content: `问题 ${start + index}`, timestamp: NOW.getTime() },
+    });
+    entries.push({
+      role: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: `回答 ${start + index}` }],
+        stopReason: "stop",
+        timestamp: NOW.getTime(),
+      },
+    });
+  }
+  database.appendAgentTranscript(conversationId, entries, NOW);
+}
+
+function toolCallOf(message: AgentMessage | undefined): { id: string; name: string } {  if (message?.role !== "assistant") throw new Error("expected an assistant message");
   const call = message.content.find(
     (block): block is Extract<(typeof message.content)[number], { type: "toolCall" }> =>
       block.type === "toolCall",

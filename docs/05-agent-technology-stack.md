@@ -1,6 +1,6 @@
 # Person Agent 新增 Agent 能力技术栈
 
-> 文档状态：v0.4.0 已实现 P0（持久化多轮会话）；P1/P2 待实现
+> 文档状态：v0.4.0 已实现 P0（多轮会话）；v0.5.0 已实现 P1 Context Builder；记忆、Workflow、权限与引用待实现
 >
 > 对应需求：`PRODUCT_DESIGN.md` 第 16 节
 >
@@ -133,7 +133,15 @@ WPF 继续使用现有 `HttpClient` 和 `System.Text.Json`。右侧 Agent 抽屉
 - 工具调用和工具结果顺序不丢失。
 - 删除会话后，消息无法再被 Context Builder 或搜索读取。
 
-## 4. P1：Context Builder 与历史摘要
+## 4. P1：Context Builder 与历史摘要（v0.5.0 已实现）
+
+### 4.0 实现状态
+
+- `src/agent/tokens.ts`：保守估算，CJK 按字计、其余按 3 字符 1 token。
+- `src/agent/context.ts`：`buildConversationContext` 组装每次请求，输出 `ContextManifest`；`contextTransform` 生成 `transformContext` 钩子，`createAssistant` 与测试共用同一路径。
+- `src/agent/summary.ts` + `agent_summaries` 表：30 条积压触发、保留最近 10 条原文、可追溯覆盖范围、新摘要替代旧摘要。
+- 预算：`promptBudgetTokens` 保留至少 25% 窗口（或模型 maxTokens）给输出与工具循环；工具声明按工具数估算。
+- 日志：`agent_context` 只记录清单与 ID，不记录正文；摘要失败记录 `agent_summary_failed`。
 
 ### 4.1 实现位置
 
@@ -381,10 +389,10 @@ type ToolPolicy = {
 
 ### 第二批：P1 上下文与记忆
 
-1. `transformContext` 接入 Context Builder。
-2. 历史裁剪和可追溯摘要。
-3. 显式长期记忆及查看、编辑、删除。
-4. 基于真实用例建立上下文/记忆评测，再决定是否启用 FTS5。
+1. `transformContext` 接入 Context Builder。（v0.5.0 已完成）
+2. 历史裁剪和可追溯摘要。（v0.5.0 已完成）
+3. 显式长期记忆及查看、编辑、删除。（待实现）
+4. 基于真实用例建立上下文/记忆评测，再决定是否启用 FTS5。（待实现）
 
 ### 第三批：P1 Workflow 恢复
 

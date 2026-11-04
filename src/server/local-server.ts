@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { conversationAgentFactory, runConversationTurn } from "../agent/session.js";
+import { summaryGeneratorFor } from "../agent/summary.js";
 import { defaultApprovalExecutor, WorkflowActionError, type ApprovalExecutor } from "../calendar-actions.js";
 import type { AppConfig } from "../config.js";
 import type { AppDatabase } from "../database.js";
@@ -351,6 +352,7 @@ const defaultKnowledgeService: KnowledgeService = {
 };
 
 async function defaultAgentService(request: RouteRequest, input: AgentTurnInput): Promise<AgentTurn> {
+  const logger = request.logger;
   return await runConversationTurn({
     database: request.database,
     message: input.message,
@@ -361,5 +363,24 @@ async function defaultAgentService(request: RouteRequest, input: AgentTurnInput)
       database: request.database,
     }),
     now: request.now,
+    summary: {
+      generate: summaryGeneratorFor({ paths: request.paths, config: request.runtime.config }),
+      onError: (error) => {
+        logger?.("agent_summary_failed", {
+          conversationId: input.conversationId ?? null,
+          error: safeErrorMessage(error),
+        });
+      },
+    },
+    ...(logger
+      ? {
+          onContext: (manifest) => {
+            logger("agent_context", {
+              conversationId: input.conversationId ?? null,
+              ...manifest,
+            });
+          },
+        }
+      : {}),
   });
 }

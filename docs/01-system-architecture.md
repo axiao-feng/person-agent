@@ -123,7 +123,7 @@ Agent 对话同理：`/api/conversations*` 只做 DTO 转换，会话加载、�
 - `schedule.ts`：时区、周期计算和空闲时段。
 - `knowledge/`：Zotero 同步、论文分析、Vault 写入、日报生成和打开笔记。
 - `integrations/`：Google 与天气。
-- `agent.ts`、`agent/session.ts`、`tools.ts`：模型调用、会话加载与持久化、工具门控。
+- `agent.ts`、`agent/session.ts`、`agent/context.ts`、`agent/summary.ts`、`tools.ts`：模型调用、会话加载与持久化、上下文预算与摘要、工具门控。
 - `worker.ts`：定时任务、补发、通知和计划冲突检查。
 
 新增 HTTP 功能时，优先把可复用的领域操作提取为普通函数，再让 CLI、HTTP、worker 共同调用；不要让 HTTP 调 CLI 子进程。
@@ -276,10 +276,11 @@ UI 不重新计算重点顺序、冲突或“可用专注时间”。没有可�
 - 已完成：审批失败重试/历史、离线与局部失败状态、通知深链端到端验证。
 - 待完成：发布/升级/回滚手册，MSIX 或传统安装器决策，高 DPI 125%–200% 逐档视觉验收。
 
-### 阶段 6：Agent 会话（v0.4.0 已完成 P0）
+### 阶段 6：Agent 会话（v0.4.0 已完成 P0，v0.5.0 完成上下文预算与摘要）
 
 - 已完成：`agent_conversations` / `agent_messages`、`src/agent/session.ts`、`/api/conversations*`、WPF 多轮对话与重启恢复。
-- 待完成：Context Builder（历史裁剪、摘要、token 预算）、分层长期记忆、持久 Workflow Run、工具权限策略和回答引用。
+- 已完成：`src/agent/context.ts` 的 token 预算与裁剪、`agent_summaries` 与无工具摘要、每次请求的上下文清单日志。
+- 待完成：分层长期记忆、按任务检索证据、持久 Workflow Run、工具权限策略和回答引用。
 
 ## 12. 暂不决定的事项
 
