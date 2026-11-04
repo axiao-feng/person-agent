@@ -286,3 +286,47 @@ export type MemoryListResponse = ResponseMeta & {
 export type MemoryResponse = ResponseMeta & {
   memory: AgentMemoryDto;
 };
+
+export type WorkflowRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_user"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type WorkflowRunDto = {
+  id: string;
+  conversationId: string | null;
+  kind: string;
+  status: WorkflowRunStatus;
+  input: Record<string, unknown>;
+  state: Record<string, unknown>;
+  currentStep: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
+export type WorkflowStepDto = {
+  id: string;
+  sequence: number;
+  kind: string;
+  status: "pending" | "running" | "succeeded" | "failed" | "skipped";
+  input: unknown;
+  output: unknown;
+  error: string | null;
+  idempotencyKey: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+export type WorkflowRunDetailResponse = ResponseMeta & {
+  run: WorkflowRunDto;
+  steps: WorkflowStepDto[];
+};
+
+export type WorkflowRunListResponse = ResponseMeta & {
+  items: WorkflowRunDto[];
+};

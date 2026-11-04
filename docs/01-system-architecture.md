@@ -124,6 +124,7 @@ Agent 对话同理：`/api/conversations*` 只做 DTO 转换，会话加载、�
 - `knowledge/`：Zotero 同步、论文分析、Vault 写入、日报生成和打开笔记。
 - `integrations/`：Google 与天气。
 - `agent.ts`、`agent/session.ts`、`agent/context.ts`、`agent/summary.ts`、`tools.ts`：模型调用、会话加载与持久化、上下文预算与摘要、工具门控。
+- `workflows/`：显式注册的可恢复 workflow（run/step/幂等/等待），由 API 与 worker 共同推进。
 - `worker.ts`：定时任务、补发、通知和计划冲突检查。
 
 新增 HTTP 功能时，优先把可复用的领域操作提取为普通函数，再让 CLI、HTTP、worker 共同调用；不要让 HTTP 调 CLI 子进程。

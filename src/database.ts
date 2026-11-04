@@ -294,6 +294,52 @@ export const AGENT_MEMORY_SOURCE_TYPES: readonly AgentMemorySourceType[] = [
 export const AGENT_MESSAGE_SCHEMA_VERSION = 1;
 export const AGENT_CONVERSATION_TITLE_MAX = 120;
 
+export type WorkflowRunStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_user"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type WorkflowStepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
+
+export type WorkflowRun = {
+  id: string;
+  conversationId: string | null;
+  kind: string;
+  status: WorkflowRunStatus;
+  input: Record<string, unknown>;
+  state: Record<string, unknown>;
+  currentStep: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+};
+
+export type WorkflowStep = {
+  id: string;
+  runId: string;
+  sequence: number;
+  kind: string;
+  status: WorkflowStepStatus;
+  input: unknown;
+  output: unknown;
+  error: string | null;
+  idempotencyKey: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+export type WorkflowRunInput = {
+  kind: string;
+  input: Record<string, unknown>;
+  conversationId?: string;
+  /** Seed state, used when resuming a run that was created elsewhere. */
+  state?: Record<string, unknown>;
+};
+
 type Row = Record<string, SQLOutputValue>;
 
 const AGENT_CONVERSATION_SELECT = `SELECT c.*,
@@ -1559,6 +1605,198 @@ export class AppDatabase {
     return memory;
   }
 
+  createWorkflowRun(input: WorkflowRunInput, now = new Date()): WorkflowRun {
+    const kind = requiredText(input.kind, "workflow 类型", 100);
+    const id = randomUUID();
+    this.sqlite
+      .prepare(
+        `INSERT INTO workflow_runs
+         (id, conversation_id, kind, status, input_json, state_json, current_step, error,
+          created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, 'queued', ?, ?, 0, NULL, ?, ?, NULL)`,
+      )
+      .run(
+        id,
+        input.conversationId ?? null,
+        kind,
+        JSON.stringify(input.input),
+        JSON.stringify(input.state ?? {}),
+        now.toISOString(),
+        now.toISOString(),
+      );
+    return this.getWorkflowRunRequired(id);
+  }
+
+  getWorkflowRun(id: string): WorkflowRun | undefined {
+    const row = this.sqlite.prepare("SELECT * FROM workflow_runs WHERE id = ?").get(id) as Row | undefined;
+    return row ? parseWorkflowRun(row) : undefined;
+  }
+
+  listWorkflowRuns(
+    options: { status?: WorkflowRunStatus; kind?: string; limit?: number } = {},
+  ): WorkflowRun[] {
+    const conditions: string[] = [];
+    const parameters: (string | number)[] = [];
+    if (options.status) {
+      conditions.push("status = ?");
+      parameters.push(options.status);
+    }
+    if (options.kind) {
+      conditions.push("kind = ?");
+      parameters.push(options.kind);
+    }
+    parameters.push(options.limit ?? 20);
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM workflow_runs
+         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(...parameters);
+    return (rows as Row[]).map(parseWorkflowRun);
+  }
+
+  listWorkflowSteps(runId: string): WorkflowStep[] {
+    const rows = this.sqlite
+      .prepare("SELECT * FROM workflow_steps WHERE run_id = ? ORDER BY sequence")
+      .all(runId);
+    return (rows as Row[]).map(parseWorkflowStep);
+  }
+
+  /** Claims a run for one executor. A stale `running` run can be re-claimed after `staleBefore`. */
+  claimWorkflowRun(id: string, now = new Date(), staleBefore?: Date): WorkflowRun | undefined {
+    const staleIso = (staleBefore ?? new Date(now.getTime() - 5 * 60_000)).toISOString();
+    const changed = this.sqlite
+      .prepare(
+        `UPDATE workflow_runs SET status = 'running', updated_at = ?
+         WHERE id = ? AND (status IN ('queued', 'waiting_for_user') OR (status = 'running' AND updated_at < ?))`,
+      )
+      .run(now.toISOString(), id, staleIso);
+    if (changed.changes !== 1) return undefined;
+    return this.getWorkflowRun(id);
+  }
+
+  ensureWorkflowStep(
+    input: {
+      runId: string;
+      sequence: number;
+      kind: string;
+      input: unknown;
+      idempotencyKey: string;
+    },
+    now = new Date(),
+  ): WorkflowStep {
+    this.getWorkflowRunRequired(input.runId);
+    return this.transaction(() => {
+      const existing = this.sqlite
+        .prepare("SELECT * FROM workflow_steps WHERE run_id = ? AND sequence = ?")
+        .get(input.runId, input.sequence) as Row | undefined;
+      if (existing) return parseWorkflowStep(existing);
+      const id = randomUUID();
+      this.sqlite
+        .prepare(
+          `INSERT INTO workflow_steps
+           (id, run_id, sequence, kind, status, input_json, output_json, error,
+            idempotency_key, started_at, completed_at)
+           VALUES (?, ?, ?, ?, 'pending', ?, NULL, NULL, ?, NULL, NULL)`,
+        )
+        .run(id, input.runId, input.sequence, input.kind, JSON.stringify(input.input), input.idempotencyKey);
+      const row = this.sqlite.prepare("SELECT * FROM workflow_steps WHERE id = ?").get(id) as Row;
+      return parseWorkflowStep(row);
+    });
+  }
+
+  startWorkflowStep(id: string, now = new Date()): WorkflowStep {
+    this.sqlite
+      .prepare("UPDATE workflow_steps SET status = 'running', started_at = ?, error = NULL WHERE id = ?")
+      .run(now.toISOString(), id);
+    return this.getWorkflowStepRequired(id);
+  }
+
+  completeWorkflowStep(
+    id: string,
+    status: Extract<WorkflowStepStatus, "succeeded" | "failed" | "skipped">,
+    options: { output?: unknown; error?: string | null } = {},
+    now = new Date(),
+  ): WorkflowStep {
+    this.sqlite
+      .prepare(
+        "UPDATE workflow_steps SET status = ?, output_json = ?, error = ?, completed_at = ? WHERE id = ?",
+      )
+      .run(
+        status,
+        options.output === undefined ? null : JSON.stringify(options.output),
+        options.error ?? null,
+        now.toISOString(),
+        id,
+      );
+    return this.getWorkflowStepRequired(id);
+  }
+
+  pauseWorkflowStep(id: string): WorkflowStep {
+    this.sqlite
+      .prepare("UPDATE workflow_steps SET status = 'pending', started_at = NULL, error = NULL WHERE id = ?")
+      .run(id);
+    return this.getWorkflowStepRequired(id);
+  }
+
+  /** Progresses a run to the next step while rewriting its persisted state. */
+  advanceWorkflowRunState(
+    id: string,
+    options: { currentStep: number; state: Record<string, unknown>; status?: WorkflowRunStatus },
+    now = new Date(),
+  ): WorkflowRun {
+    const run = this.getWorkflowRunRequired(id);
+    this.sqlite
+      .prepare("UPDATE workflow_runs SET status = ?, current_step = ?, state_json = ?, updated_at = ? WHERE id = ?")
+      .run(options.status ?? run.status, options.currentStep, JSON.stringify(options.state), now.toISOString(), id);
+    return this.getWorkflowRunRequired(id);
+  }
+
+  finishWorkflowRun(
+    id: string,
+    status: Extract<WorkflowRunStatus, "succeeded" | "failed" | "cancelled">,
+    options: { state?: Record<string, unknown>; error?: string | null; currentStep?: number } = {},
+    now = new Date(),
+  ): WorkflowRun {
+    const run = this.getWorkflowRunRequired(id);
+    this.sqlite
+      .prepare(
+        `UPDATE workflow_runs
+         SET status = ?, state_json = ?, error = ?, current_step = ?, updated_at = ?, completed_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        status,
+        JSON.stringify(options.state ?? run.state),
+        options.error ?? null,
+        options.currentStep ?? run.currentStep,
+        now.toISOString(),
+        now.toISOString(),
+        id,
+      );
+    return this.getWorkflowRunRequired(id);
+  }
+
+  cancelWorkflowRun(id: string, now = new Date()): WorkflowRun {
+    const run = this.getWorkflowRunRequired(id);
+    if (run.status === "succeeded" || run.status === "failed" || run.status === "cancelled") return run;
+    return this.finishWorkflowRun(id, "cancelled", {}, now);
+  }
+
+  private getWorkflowRunRequired(id: string): WorkflowRun {
+    const run = this.getWorkflowRun(id);
+    if (!run) throw new Error(`找不到 workflow run：${id}`);
+    return run;
+  }
+
+  private getWorkflowStepRequired(id: string): WorkflowStep {
+    const row = this.sqlite.prepare("SELECT * FROM workflow_steps WHERE id = ?").get(id) as Row | undefined;
+    if (!row) throw new Error(`找不到 workflow step：${id}`);
+    return parseWorkflowStep(row);
+  }
+
   private getAgentConversationRequired(id: string): AgentConversation {
     const conversation = this.getAgentConversation(id);
     if (!conversation) throw new Error(`找不到会话：${id}`);
@@ -1846,6 +2084,36 @@ export class AppDatabase {
       );
       CREATE INDEX IF NOT EXISTS agent_memories_active_idx
         ON agent_memories(deleted_at, importance, updated_at);
+      CREATE TABLE IF NOT EXISTS workflow_runs (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'waiting_for_user', 'succeeded', 'failed', 'cancelled')),
+        input_json TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        current_step INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS workflow_runs_status_idx ON workflow_runs(status, updated_at);
+      CREATE TABLE IF NOT EXISTS workflow_steps (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+        sequence INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'skipped')),
+        input_json TEXT,
+        output_json TEXT,
+        error TEXT,
+        idempotency_key TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        UNIQUE(run_id, sequence),
+        UNIQUE(idempotency_key)
+      );
+      CREATE INDEX IF NOT EXISTS workflow_steps_run_idx ON workflow_steps(run_id, sequence);
     `);
     const lectureColumns = this.sqlite.prepare("PRAGMA table_info(lectures)").all() as Row[];
     if (!lectureColumns.some((column) => String(column.name) === "requires_presentation")) {
@@ -2079,6 +2347,38 @@ function assertMemorySourceType(value: string): AgentMemorySourceType {
 
 function normalizeMemoryContent(content: string): string {
   return content.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function parseWorkflowRun(row: Row): WorkflowRun {
+  return {
+    id: String(row.id),
+    conversationId: nullableString(row.conversation_id),
+    kind: String(row.kind),
+    status: String(row.status) as WorkflowRunStatus,
+    input: JSON.parse(String(row.input_json)) as Record<string, unknown>,
+    state: JSON.parse(String(row.state_json)) as Record<string, unknown>,
+    currentStep: Number(row.current_step),
+    error: nullableString(row.error),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    completedAt: nullableString(row.completed_at),
+  };
+}
+
+function parseWorkflowStep(row: Row): WorkflowStep {
+  return {
+    id: String(row.id),
+    runId: String(row.run_id),
+    sequence: Number(row.sequence),
+    kind: String(row.kind),
+    status: String(row.status) as WorkflowStepStatus,
+    input: row.input_json === null ? null : (JSON.parse(String(row.input_json)) as unknown),
+    output: row.output_json === null ? null : (JSON.parse(String(row.output_json)) as unknown),
+    error: nullableString(row.error),
+    idempotencyKey: nullableString(row.idempotency_key),
+    startedAt: nullableString(row.started_at),
+    completedAt: nullableString(row.completed_at),
+  };
 }
 
 function parseOperation(row: Row): Operation {

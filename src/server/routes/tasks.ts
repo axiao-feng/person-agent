@@ -2,6 +2,8 @@ import type { ResearchTask, ResearchTaskStatus, TaskKind } from "../../database.
 import { applyTaskCommand, editTask, TaskTransitionError } from "../../domain/tasks.js";
 import type { CalendarEvent } from "../../integrations/google.js";
 import { findFreeSlots, parseInstant, type BusyInterval } from "../../schedule.js";
+import { TASK_SCHEDULE_WORKFLOW, createWorkflowRegistry } from "../../workflows/registry.js";
+import { createWorkflowRuntime } from "../../workflows/runtime.js";
 import { approvalDto } from "../approval-data.js";
 import type { Route, RouteRequest } from "../context.js";
 import { ApiError, NotConfiguredError, safeErrorMessage } from "../errors.js";
@@ -188,18 +190,28 @@ export const taskRoutes: Route[] = [
       if (Date.parse(endAt) <= Date.parse(startAt)) {
         throw validation("结束时间必须晚于开始时间。", "endAt", "结束时间必须晚于开始时间。");
       }
-      const kind = task.calendarEventId ? "calendar.update" : "calendar.create";
-      const payload: Record<string, unknown> = {
-        title: task.title,
-        startAt,
-        endAt,
-        taskId: task.id,
-        ...(task.calendarEventId ? { calendarEventId: task.calendarEventId } : {}),
-      };
-      const action = request.database.stageWorkflowAction(kind, payload, request.now);
+
+      // The approval is staged by a durable workflow run so the state survives a
+      // service restart between "schedule requested" and "still waiting for approval".
+      const runtime = createWorkflowRuntime({
+        database: request.database,
+        registry: createWorkflowRegistry(),
+      });
+      const created = runtime.create({
+        kind: TASK_SCHEDULE_WORKFLOW,
+        input: { taskId, startAt, endAt },
+      });
+      const advanced = await runtime.advance(created.id, request.now);
+      if (advanced.status === "failed") {
+        throw new ApiError(409, "CONFLICT", advanced.error ?? "无法生成日历安排。");
+      }
+      const approvalId =
+        typeof advanced.state.approvalId === "string" ? advanced.state.approvalId : undefined;
+      const action = approvalId ? request.database.getWorkflowAction(approvalId) : undefined;
+      if (!action) throw new ApiError(500, "INTERNAL_ERROR", "无法生成审批内容。");
       const approval = approvalDto(action, task);
       if (!approval) throw new ApiError(500, "INTERNAL_ERROR", "无法生成审批内容。");
-      return { status: 201, body: { approval } };
+      return { status: 201, body: { approval, workflowRunId: advanced.id } };
     },
   },
 ];

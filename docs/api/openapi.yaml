@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Person Agent Local API
-  version: 0.6.0
+  version: 0.7.0
   summary: WPF 客户端与本机 TypeScript 服务之间的实现合同
   description: |
     本合同描述 Windows 当前用户会话内的 loopback API。
@@ -239,7 +239,9 @@ paths:
       tags: [Tasks]
       operationId: stageTaskSchedule
       summary: 为所选时段生成 Calendar 待审批操作
-      description: 只生成 pending action，不写入 Calendar，不把任务改为 planned。
+      description: |
+        只生成 pending action，不写入 Calendar，不把任务改为 planned。
+        该操作由持久 workflow run（`task.schedule`）执行，返回的 `workflowRunId` 可用于查询或继续该 run。
       x-person-agent-phase: 2
       parameters:
         - $ref: "#/components/parameters/TaskId"
@@ -251,11 +253,11 @@ paths:
               $ref: "#/components/schemas/ScheduleTaskRequest"
       responses:
         "201":
-          description: 已持久化的待审批操作
+          description: 已持久化的待审批操作及其 workflow run
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApprovalResponse"
+                $ref: "#/components/schemas/ScheduleApprovalResponse"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -869,6 +871,112 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/workflows:
+    get:
+      tags: [Agent]
+      operationId: listWorkflowRuns
+      summary: 列出持久 workflow run
+      x-person-agent-phase: 6
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [queued, running, waiting_for_user, succeeded, failed, cancelled]
+        - name: kind
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: 按创建时间倒序的 run 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunListResponse"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+
+  /api/workflows/resume-pending:
+    post:
+      tags: [Agent]
+      operationId: resumePendingWorkflowRuns
+      summary: 继续所有等待中的 run（worker 与调试入口）
+      x-person-agent-phase: 6
+      responses:
+        "200":
+          description: 本次实际推进的 run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunListResponse"
+
+  /api/workflows/{runId}:
+    get:
+      tags: [Agent]
+      operationId: getWorkflowRun
+      summary: 查看一个 run 及其步骤
+      x-person-agent-phase: 6
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: run 与步骤轨迹
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/workflows/{runId}/resume:
+    post:
+      tags: [Agent]
+      operationId: resumeWorkflowRun
+      summary: 推进一个 run 到下一步
+      description: waiting_for_user 时重新检查等待条件；已结束的 run 返回 409。
+      x-person-agent-phase: 6
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: 推进后的 run 与步骤
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/workflows/{runId}/cancel:
+    post:
+      tags: [Agent]
+      operationId: cancelWorkflowRun
+      summary: 取消一个未结束的 run
+      x-person-agent-phase: 6
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: 已取消的 run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/agent/messages:
     post:
       tags: [Agent]
@@ -940,6 +1048,13 @@ components:
         format: uuid
     MemoryId:
       name: memoryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RunId:
+      name: runId
       in: path
       required: true
       schema:
@@ -1871,6 +1986,79 @@ components:
             memoryId: { type: string }
             deleted: { type: boolean, const: true }
             memory: { $ref: "#/components/schemas/AgentMemory" }
+
+    ScheduleApprovalResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [approval, workflowRunId]
+          properties:
+            approval: { $ref: "#/components/schemas/Approval" }
+            workflowRunId:
+              type: string
+              description: 承载该审批的持久 workflow run
+
+    WorkflowRun:
+      type: object
+      additionalProperties: false
+      required: [id, conversationId, kind, status, input, state, currentStep, error, createdAt, updatedAt, completedAt]
+      properties:
+        id: { type: string }
+        conversationId: { type: [string, "null"] }
+        kind: { type: string }
+        status:
+          type: string
+          enum: [queued, running, waiting_for_user, succeeded, failed, cancelled]
+        input:
+          type: object
+          additionalProperties: true
+        state:
+          type: object
+          additionalProperties: true
+        currentStep: { type: integer, minimum: 0 }
+        error: { type: [string, "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        completedAt: { type: [string, "null"] }
+
+    WorkflowStep:
+      type: object
+      additionalProperties: false
+      required: [id, sequence, kind, status, input, output, error, idempotencyKey, startedAt, completedAt]
+      properties:
+        id: { type: string }
+        sequence: { type: integer, minimum: 1 }
+        kind: { type: string }
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed, skipped]
+        input: {}
+        output: {}
+        error: { type: [string, "null"] }
+        idempotencyKey: { type: [string, "null"] }
+        startedAt: { type: [string, "null"] }
+        completedAt: { type: [string, "null"] }
+
+    WorkflowRunListResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/WorkflowRun" }
+
+    WorkflowRunDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ResponseMeta"
+        - type: object
+          required: [run, steps]
+          properties:
+            run: { $ref: "#/components/schemas/WorkflowRun" }
+            steps:
+              type: array
+              items: { $ref: "#/components/schemas/WorkflowStep" }
 
     AgentMessageResponse:
       allOf:

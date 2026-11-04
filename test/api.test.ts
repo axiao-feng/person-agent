@@ -24,6 +24,8 @@ import type {
   PaperSummary,
   Settings,
   TranscriptMessageDto,
+  WorkflowRunDto,
+  WorkflowStepDto,
 } from "../src/server/types.js";
 
 const NOW = new Date("2026-10-30T02:00:00.000Z"); // 10:00 in Shanghai
@@ -481,6 +483,65 @@ test("expired memories are excluded from the list", async () => {
     assert.equal(past.status, 201);
     const list = await api.get("/api/memories");
     assert.deepEqual(((await list.json()) as { items: unknown[] }).items, []);
+  });
+});
+
+test("scheduling a task is backed by a resumable workflow run", async () => {
+  await withApi(async (api) => {
+    const staged = await api.send(`/api/tasks/${api.fixture.draftTaskId}/schedule`, "POST", {
+      startAt: "2026-10-30T01:00:00Z",
+      endAt: "2026-10-30T02:00:00Z",
+    });
+    assert.equal(staged.status, 201);
+    const body = (await staged.json()) as { approval: Approval; workflowRunId: string };
+    assert.ok(body.workflowRunId);
+
+    const run = await api.get(`/api/workflows/${body.workflowRunId}`);
+    assert.equal(run.status, 200);
+    const runBody = (await run.json()) as { run: WorkflowRunDto; steps: WorkflowStepDto[] };
+    assert.equal(runBody.run.status, "waiting_for_user");
+    assert.equal(runBody.run.kind, "task.schedule");
+    assert.equal(runBody.run.state.approvalId, body.approval.id);
+    assert.deepEqual(runBody.steps.map((step) => step.status), ["succeeded"]);
+
+    const pendingResume = await api.send(`/api/workflows/${body.workflowRunId}/resume`, "POST");
+    assert.equal(pendingResume.status, 200);
+    const pendingBody = (await pendingResume.json()) as { run: WorkflowRunDto; steps: WorkflowStepDto[] };
+    assert.equal(pendingBody.run.status, "waiting_for_user");
+    assert.deepEqual(pendingBody.steps.map((step) => step.status), ["succeeded", "pending"]);
+    assert.equal(api.fixture.createdEvents.length, 0, "nothing was written to the calendar yet");
+
+    const approved = await api.send(`/api/approvals/${body.approval.id}/approve`, "POST");
+    assert.equal(approved.status, 200);
+
+    const after = await api.get(`/api/workflows/${body.workflowRunId}`);
+    const afterBody = (await after.json()) as { run: WorkflowRunDto; steps: WorkflowStepDto[] };
+    assert.equal(afterBody.run.status, "succeeded");
+    assert.deepEqual(afterBody.steps.map((step) => step.status), ["succeeded", "succeeded"]);
+    assert.equal(api.fixture.database.getResearchTask(api.fixture.draftTaskId)?.status, "planned");
+
+    const listed = await api.get("/api/workflows?status=succeeded");
+    const listedBody = (await listed.json()) as { items: WorkflowRunDto[] };
+    assert.ok(listedBody.items.some((item) => item.id === body.workflowRunId));
+  });
+});
+
+test("a workflow run can be cancelled and terminal runs reject resume", async () => {
+  await withApi(async (api) => {
+    const staged = await api.send(`/api/tasks/${api.fixture.draftTaskId}/schedule`, "POST", {
+      startAt: "2026-10-30T03:00:00Z",
+      endAt: "2026-10-30T04:00:00Z",
+    });
+    const body = (await staged.json()) as { workflowRunId: string };
+
+    const cancelled = await api.send(`/api/workflows/${body.workflowRunId}/cancel`, "POST");
+    assert.equal(cancelled.status, 200);
+    assert.equal(((await cancelled.json()) as { run: WorkflowRunDto }).run.status, "cancelled");
+
+    const resume = await api.send(`/api/workflows/${body.workflowRunId}/resume`, "POST");
+    assert.equal(resume.status, 409);
+    const missing = await api.get("/api/workflows/00000000-0000-4000-8000-000000000000");
+    assert.equal(missing.status, 404);
   });
 });
 

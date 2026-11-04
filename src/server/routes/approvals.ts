@@ -1,5 +1,7 @@
 import { executeStoredApproval, WorkflowActionError } from "../../calendar-actions.js";
 import type { WorkflowActionStatus } from "../../database.js";
+import { createWorkflowRegistry } from "../../workflows/registry.js";
+import { resumeRunsForApproval } from "../../workflows/runtime.js";
 import { approvalDto } from "../approval-data.js";
 import type { Route, RouteRequest } from "../context.js";
 import { ApiError } from "../errors.js";
@@ -51,6 +53,15 @@ export const approvalRoutes: Route[] = [
           executor: request.services.approvalExecutor,
           now: request.now,
         });
+        try {
+          await resumeRunsForApproval(
+            { database: request.database, registry: createWorkflowRegistry() },
+            action.id,
+            request.now,
+          );
+        } catch {
+          // Workflow resumption is best-effort; the worker retries on its next tick.
+        }
         return { body: { approval: requireApproval(request, action) } };
       } catch (error) {
         if (error instanceof WorkflowActionError) {

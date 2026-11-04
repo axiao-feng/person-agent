@@ -42,6 +42,9 @@ agent_conversations ──< agent_messages
                        (superseded_by 为空表示当前生效)
 
 agent_memories                # 用户明确保存的长期记忆（软删除）
+
+workflow_runs ──< workflow_steps
+                (run_id, sequence 与 idempotency_key 唯一)
 config.json                   # 用户配置，不在 SQLite
 secrets.dpapi                 # 加密凭据，不在 SQLite
 ```
@@ -257,6 +260,44 @@ Agent 消息轨迹。这里保存的是 `pi-agent-core` 的 `AgentMessage` 原�
 - 模型只有 `remember_user_fact` 一个新增入口，且只在用户明确要求记住或纠正时调用。
 - 删除由用户通过 API 或设置页执行；软删除后列表、搜索、Context Builder 都不再读取。
 
+### 3.12 `workflow_runs`
+
+可恢复 workflow 的实例（v0.7.0）。
+
+| 字段 | 类型 | 约束/语义 |
+| --- | --- | --- |
+| `id` | TEXT | UUID，主键 |
+| `conversation_id` | TEXT | 可空，来源对话 |
+| `kind` | TEXT | 已注册的 workflow 类型，如 `task.schedule` |
+| `status` | TEXT | `queued / running / waiting_for_user / succeeded / failed / cancelled` |
+| `input_json` | TEXT | 创建时固定的输入，步骤只读 |
+| `state_json` | TEXT | 跨步骤状态（如 `approvalId`） |
+| `current_step` | INTEGER | 已完成的步骤数 |
+| `error` | TEXT | 终态错误，可空 |
+| `created_at` / `updated_at` / `completed_at` | TEXT | UTC |
+
+### 3.13 `workflow_steps`
+
+run 的步骤轨迹。
+
+| 字段 | 类型 | 约束/语义 |
+| --- | --- | --- |
+| `id` | TEXT | UUID，主键 |
+| `run_id` | TEXT | 外键；`UNIQUE(run_id, sequence)` |
+| `sequence` | INTEGER | 从 1 开始 |
+| `kind` | TEXT | 步骤类型，在 registry 中定义 |
+| `status` | TEXT | `pending / running / succeeded / failed / skipped` |
+| `input_json` / `output_json` | TEXT | 步骤输入与输出 |
+| `error` | TEXT | 步骤失败原因，可空 |
+| `idempotency_key` | TEXT | `UNIQUE`，防止重复执行副作用 |
+| `started_at` / `completed_at` | TEXT | UTC |
+
+规则：
+
+- 执行前先写输入与幂等键，再执行副作用，最后写输出。
+- `poll` 结果的步骤会回到 `pending`，下次 resume 重试；`waiting` 结果的步骤视为完成。
+- `running` 超过 5 分钟未更新视为崩溃遗留，可被 worker 重新领取。
+
 ## 4. 非 SQLite 数据
 
 ### 4.1 `config.json`
@@ -422,6 +463,8 @@ UI 推导状态：
 - `agent_messages_conversation_idx(conversation_id, sequence)`
 - `agent_summaries_conversation_idx(conversation_id, created_at)`
 - `agent_memories_active_idx(deleted_at, importance, updated_at)`
+- `workflow_runs_status_idx(status, updated_at)`
+- `workflow_steps_run_idx(run_id, sequence)`
 
 迁移规则：
 

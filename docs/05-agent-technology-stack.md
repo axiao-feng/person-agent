@@ -1,6 +1,6 @@
 # Person Agent 新增 Agent 能力技术栈
 
-> 文档状态：P0 会话（v0.4.0）、Context Builder（v0.5.0）与长期记忆（v0.6.0）已实现；工作记忆、Workflow、权限与引用待实现
+> 文档状态：P0 会话（v0.4.0）、Context Builder（v0.5.0）、长期记忆（v0.6.0）与 Workflow Run（v0.7.0）已实现；工作记忆、权限与引用待实现
 >
 > 对应需求：`PRODUCT_DESIGN.md` 第 16 节
 >
@@ -240,7 +240,17 @@ agent_memories
 - 关键词检索的离线召回率明显不足；
 - 已建立可复现的记忆检索评测集。
 
-## 6. P1：持久 Workflow Run
+## 6. P1：持久 Workflow Run（v0.7.0 已实现试点）
+
+### 6.0 实现状态
+
+- `workflow_runs` / `workflow_steps` 两张表落在 `src/database.ts` 的迁移块；`current_step` 表示已完成的步骤数。
+- `src/workflows/registry.ts` 只注册显式定义的 workflow；当前唯一实现是 `task.schedule`（两步：生成审批 → 等待并检查审批）。
+- `src/workflows/runtime.ts`：claim → 逐步执行 → waiting/poll/done/cancelled/failed；`poll` 表示步骤尚未满足，重新挂起并在下次 resume 重试。
+- 幂等：每步执行前写入 `idempotency_key`，并先落库输入；重复推进复用已成功的步骤。
+- 恢复：worker 每 30 秒调用 `resumePendingRuns`；`waiting_for_user` 直接检查，`running` 超过 5 分钟视为崩溃遗留并重新领取。
+- 审批完成后本地服务立即 `resumeRunsForApproval`；Calendar 写入仍只经 `workflow_actions`。
+- 未迁移：知识同步/整理仍使用 `operations`，按 docs 约定不重写稳定路径。
 
 ### 6.1 实现方式
 
@@ -405,9 +415,9 @@ type ToolPolicy = {
 
 ### 第三批：P1 Workflow 恢复
 
-1. 只选择一个确实需要等待用户和恢复的流程做 pilot。
-2. 实现 run/step/idempotency 与 worker 领取。
-3. 通过后再迁移第二个流程；不要一次改写现有稳定流程。
+1. 只选择一个确实需要等待用户和恢复的流程做 pilot。（v0.7.0 已完成：`task.schedule`）
+2. 实现 run/step/idempotency 与 worker 领取。（v0.7.0 已完成）
+3. 通过后再迁移第二个流程；不要一次改写现有稳定流程。（待实现）
 
 ### 第四批：P2 权限与引用
 

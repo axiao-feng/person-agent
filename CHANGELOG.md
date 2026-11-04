@@ -1,5 +1,43 @@
 # 更新日志
 
+## v0.7.0 — 2026-11-04
+
+实现 §16.8 的 P1：持久 Workflow Run，先让一个真实需要等待和恢复的流程具备断点续跑。
+
+### 新增
+
+**Workflow 运行时**
+- 新增 `workflow_runs`、`workflow_steps`：run 状态机（queued/running/waiting_for_user/succeeded/failed/cancelled）、步骤状态、输入输出、幂等键、`UNIQUE(run_id, sequence)` 与 `UNIQUE(idempotency_key)`。
+- 新增 `src/workflows/`：`registry.ts` 只注册显式定义的 workflow，`runtime.ts` 负责 claim → 执行步骤 → 等待/继续/取消；模型不能构造未注册步骤。
+- 每次推进前先落库步骤输入与幂等键，执行后再写输出；同一步骤重复推进不会重复执行副作用。
+- 崩溃恢复：`running` 超过 5 分钟未更新的 run 会被重新领取；`waiting_for_user` 的 run 由 worker 每 30 秒检查。
+
+**试点流程 `task.schedule`**
+- `POST /api/tasks/:id/schedule` 现在由持久 run 执行：第 1 步生成固定 payload 审批并等待用户，第 2 步在恢复时检查审批结果（已执行 → 成功、已拒绝 → 取消、失败 → 失败、仍待批 → 继续等待）。
+- 审批执行后本地服务会立即推进对应 run；worker 仍会兜底重试。
+- Calendar 写入仍只经 `workflow_actions` 审批，workflow 不绕过门控。
+
+**API**
+- 新增 `GET /api/workflows`、`GET /api/workflows/:id`、`POST /api/workflows/:id/resume`、`POST /api/workflows/:id/cancel`、`POST /api/workflows/resume-pending`。
+- `POST /api/tasks/:id/schedule` 响应新增 `workflowRunId`，审批内容不变。
+
+**测试与文档**
+- 新增 `test/workflow-run.test.ts`（4 项）与 2 项 API 测试：等待审批、拒绝取消、进程重启后恢复、陈旧 running 恢复、取消与终态保护、幂等。
+- OpenAPI 增加 workflow 合同；`PRODUCT_DESIGN.md` §16.4/§16.6/§16.8、`docs/01/03/05` 与 README 同步更新。
+
+### 验证
+
+- `pnpm test`：109 项通过（v0.6.0 为 103 项）。
+- `pnpm test:desktop`：7 项通过。
+- TypeScript 类型检查与 `dist` 构建通过；WPF Debug 构建 0 警告 0 错误。
+- 真实 `serve` 进程实测（隔离 HOME）：创建任务 → 排期得到 `workflowRunId`，run 为 `waiting_for_user`、步骤 1 成功；再次 resume 后等待步骤回到 `pending`；在未连接 Google 的机器上批准会把审批与 run 一起标记为 failed，并保留同一错误信息，不会卡在等待态。
+
+### 已知限制
+
+- 只注册了 `task.schedule` 一个 workflow；知识同步/整理仍使用既有 `operations`，未迁移。
+- 没有等待中的客户端可见列表；run 状态通过 API 与服务端日志查看。
+- 重试耗尽与人工取消后的补偿动作尚未定义；目前以 run 的终态与错误字段为准。
+
 ## v0.6.0 — 2026-11-04
 
 实现 §16.8 的 P1：分层记忆中的长期记忆，从有来源、可编辑、可删除开始。

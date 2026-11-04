@@ -13,6 +13,7 @@ import { settingsRoutes } from "./settings.js";
 import { systemRoutes } from "./system.js";
 import { taskRoutes } from "./tasks.js";
 import { todayRoutes } from "./today.js";
+import { workflowRoutes } from "./workflows.js";
 
 export const routes: Route[] = [
   ...systemRoutes,
@@ -29,4 +30,5 @@ export const routes: Route[] = [
   ...conversationRoutes,
   ...agentRoutes,
   ...memoryRoutes,
+  ...workflowRoutes,
 ];

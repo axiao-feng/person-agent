@@ -12,6 +12,8 @@ import {
 } from "./notifications.js";
 import type { AppPaths } from "./paths.js";
 import { findFreeSlots, localDayRange } from "./schedule.js";
+import { createWorkflowRegistry } from "./workflows/registry.js";
+import { resumePendingRuns } from "./workflows/runtime.js";
 
 export type WorkerContext = {
   paths: AppPaths;
@@ -42,6 +44,19 @@ export async function runWorker(context: WorkerContext, signal?: AbortSignal): P
       context.logger("knowledge_catchup_scheduled");
     }
     await processDueJobs(context);
+    try {
+      const advanced = await resumePendingRuns({
+        database: context.database,
+        registry: createWorkflowRegistry(),
+      });
+      if (advanced.length > 0) {
+        context.logger("workflow_runs_advanced", {
+          runs: advanced.map((run) => ({ id: run.id, kind: run.kind, status: run.status })),
+        });
+      }
+    } catch (error) {
+      context.logger("workflow_resume_failed", { error: safeError(error) });
+    }
     if (Date.now() >= nextPlanMonitorAt) {
       try {
         await monitorTaskPlans(context);
