@@ -331,6 +331,32 @@ test("a turn returns references collected from real tool results", async () => {
   });
 });
 
+test("deleting a conversation removes its summaries and messages", async () => {
+  await withConversationHarness(async (harness) => {
+    const conversation = harness.database.createAgentConversation("带摘要的对话", NOW);
+    appendPairs(harness.database, conversation.id, 20);
+    const summary = harness.database.createAgentSummary(
+      {
+        conversationId: conversation.id,
+        fromSequence: 1,
+        toSequence: 20,
+        summary: "前段摘要",
+      },
+      NOW,
+    );
+    assert.ok(summary);
+
+    assert.equal(harness.database.deleteAgentConversation(conversation.id), true);
+    assert.equal(harness.database.getAgentConversation(conversation.id), undefined);
+    for (const table of ["agent_messages", "agent_summaries"]) {
+      const row = harness.database.sqlite
+        .prepare(`SELECT COUNT(*) AS total FROM ${table} WHERE conversation_id = ?`)
+        .get(conversation.id) as { total: number };
+      assert.equal(Number(row.total), 0, `${table} rows must be deleted with the conversation`);
+    }
+  });
+});
+
 test("a failing summary never fails the turn", async () => {
   await withConversationHarness(async (harness) => {
     const conversation = harness.database.createAgentConversation("摘要失败", NOW);

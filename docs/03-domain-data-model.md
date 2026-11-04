@@ -217,7 +217,7 @@ Agent 消息轨迹。这里保存的是 `pi-agent-core` 的 `AgentMessage` 原�
 - 用户消息在调用模型前写入；assistant/toolResult 消息在本轮结束后同一事务追加。
 - 不逐 token 写入；流中断时保存明确的 `stopReason=error` 消息，不把半条回复当成功。
 - 尾部未完成的 tool call 在下一次 prompt 前被丢弃，避免畸形 transcript。
-- 删除会话时同时删除消息；归档不等于删除。
+- 删除会话时在同一事务里先删摘要、再删消息，最后删会话；归档不等于删除。
 
 ### 3.10 `agent_summaries`
 
@@ -235,7 +235,7 @@ Agent 消息轨迹。这里保存的是 `pi-agent-core` 的 `AgentMessage` 原�
 | `superseded_by` | TEXT | 被哪条新摘要替代；`NULL` 表示当前生效 |
 | `created_at` | TEXT | UTC |
 
-规则：同一会话最多有一条 `superseded_by IS NULL` 的摘要；新摘要覆盖范围必须紧接上一条的 `to_sequence`；摘要只覆盖最新的 `SUMMARY_KEEP_RECENT` 条之外的消息。
+规则：同一会话最多有一条 `superseded_by IS NULL` 的摘要；删除会话时摘要随会话一起删除；新摘要覆盖范围必须紧接上一条的 `to_sequence`；摘要只覆盖最新的 `SUMMARY_KEEP_RECENT` 条之外的消息。
 
 ### 3.11 `agent_memories`
 

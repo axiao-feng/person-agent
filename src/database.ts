@@ -1337,6 +1337,9 @@ export class AppDatabase {
         .prepare("SELECT 1 AS present FROM agent_conversations WHERE id = ?")
         .get(id) as Row | undefined;
       if (!existing) return false;
+      // Children must go first: both reference agent_conversations and foreign
+      // keys are enforced, so a summary left behind would block the delete.
+      this.sqlite.prepare("DELETE FROM agent_summaries WHERE conversation_id = ?").run(id);
       this.sqlite.prepare("DELETE FROM agent_messages WHERE conversation_id = ?").run(id);
       this.sqlite.prepare("DELETE FROM agent_conversations WHERE id = ?").run(id);
       return true;
@@ -1494,13 +1497,14 @@ export class AppDatabase {
     const normalized = normalizeMemoryContent(content);
 
     return this.transaction(() => {
-      const existing = this.sqlite
-        .prepare(
-          `SELECT * FROM agent_memories
-           WHERE kind = ? AND deleted_at IS NULL AND lower(trim(content)) = ?
-           LIMIT 1`,
-        )
-        .get(kind, normalized) as Row | undefined;
+      // Normalization (whitespace collapse + lowercase) cannot be expressed in a
+      // plain SQL comparison, so compare against the kind's active rows in JS.
+      const candidates = this.sqlite
+        .prepare("SELECT * FROM agent_memories WHERE kind = ? AND deleted_at IS NULL")
+        .all(kind) as Row[];
+      const existing = candidates.find(
+        (row) => normalizeMemoryContent(String(row.content)) === normalized,
+      );
       if (existing) {
         const current = parseAgentMemory(existing);
         this.sqlite

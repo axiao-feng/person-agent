@@ -1,6 +1,6 @@
 import type { WorkflowRun, WorkflowStep } from "../../database.js";
 import { createWorkflowRegistry } from "../../workflows/registry.js";
-import { advanceRun, resumePendingRuns } from "../../workflows/runtime.js";
+import { advanceRun, cancelRun, resumePendingRuns } from "../../workflows/runtime.js";
 import type { Route, RouteRequest } from "../context.js";
 import { ApiError } from "../errors.js";
 import { integerQuery, notFound, validation } from "../http.js";
@@ -74,7 +74,16 @@ export const workflowRoutes: Route[] = [
       const runId = requiredRunId(request);
       const run = request.database.getWorkflowRun(runId);
       if (!run) throw notFound("找不到该 workflow run。");
-      const cancelled = request.database.cancelWorkflowRun(runId, request.now);
+      const approvalId = typeof run.state.approvalId === "string" ? run.state.approvalId : undefined;
+      const action = approvalId ? request.database.getWorkflowAction(approvalId) : undefined;
+      if (action?.status === "executing") {
+        throw new ApiError(409, "CONFLICT", "审批正在执行，请稍后再取消。");
+      }
+      const cancelled = await cancelRun(
+        { database: request.database, registry: createWorkflowRegistry() },
+        runId,
+        request.now,
+      );
       return {
         body: {
           run: runDto(cancelled),

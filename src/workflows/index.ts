@@ -1,6 +1,7 @@
 export { createWorkflowRegistry, TASK_SCHEDULE_WORKFLOW } from "./registry.js";
 export {
   advanceRun,
+  cancelRun,
   createWorkflowRuntime,
   isTerminalWorkflowStatus,
   resumePendingRuns,

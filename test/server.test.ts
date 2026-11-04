@@ -69,7 +69,7 @@ test("health reports service, worker, and connection states without secrets", as
     const health = (await response.json()) as HealthResponse;
     assert.equal(health.status, "ok");
     assert.equal(health.service.protocolVersion, "1");
-    assert.equal(health.service.version, "0.8.0");
+    assert.equal(health.service.version, "0.8.1");
     assert.equal(health.service.uptimeSeconds >= 0, true);
     assert.equal(health.worker.state, "stopped");
     assert.equal(health.connections.database.state, "available");

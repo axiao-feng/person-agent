@@ -22,6 +22,7 @@ export function createWorkflowRuntime(deps: WorkflowRuntimeDeps) {
       return deps.database.createWorkflowRun(input);
     },
     advance: (runId: string, now?: Date) => advanceRun(deps, runId, now ?? new Date()),
+    cancel: (runId: string, now?: Date) => cancelRun(deps, runId, now ?? new Date()),
     resumePending: (options?: { now?: Date; limit?: number }) => resumePendingRuns(deps, options),
   };
 }
@@ -154,8 +155,41 @@ export async function advanceRun(
   );
 }
 
-/** Worker entry point: resumes runs that wait for the user or were abandoned mid-step. */
-export async function resumePendingRuns(
+/**
+ * Cancels a run and invalidates anything it was still waiting on.
+ *
+ * A cancelled run must not leave a usable approval behind: if the run still
+ * references a pending or approved action, that action is rejected in the same
+ * operation so a later click cannot write to the calendar.
+ */
+export async function cancelRun(
+  deps: WorkflowRuntimeDeps,
+  runId: string,
+  now = new Date(),
+): Promise<WorkflowRun> {
+  const run = deps.database.getWorkflowRun(runId);
+  if (!run) throw new Error(`找不到 workflow run：${runId}`);
+  if (isTerminalWorkflowStatus(run.status)) return run;
+
+  const approvalId = typeof run.state.approvalId === "string" ? run.state.approvalId : undefined;
+  if (approvalId) {
+    const action = deps.database.getWorkflowAction(approvalId);
+    // The calendar write already happened: cancelling would misreport state, so
+    // finish the run instead of pretending it was cancelled.
+    if (action?.status === "executed") return await advanceRun(deps, run.id, now);
+    if (action && (action.status === "pending" || action.status === "approved")) {
+      deps.database.rejectWorkflowAction(approvalId);
+    }
+  }
+  for (const step of deps.database.listWorkflowSteps(run.id)) {
+    if (step.status === "pending" || step.status === "running") {
+      deps.database.completeWorkflowStep(step.id, "skipped", { error: "workflow cancelled" }, now);
+    }
+  }
+  return deps.database.cancelWorkflowRun(run.id, now);
+}
+
+/** Worker entry point: resumes runs that wait for the user or were abandoned mid-step. */export async function resumePendingRuns(
   deps: WorkflowRuntimeDeps,
   options: { now?: Date; limit?: number } = {},
 ): Promise<WorkflowRun[]> {

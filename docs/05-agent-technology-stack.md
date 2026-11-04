@@ -131,7 +131,7 @@ WPF 继续使用现有 `HttpClient` 和 `System.Text.Json`。右侧 Agent 抽屉
 - 连续两轮请求使用同一个 conversation ID。
 - 关闭 WPF 和本地服务后重新打开，能继续同一对话。
 - 工具调用和工具结果顺序不丢失。
-- 删除会话后，消息无法再被 Context Builder 或搜索读取。
+- 删除会话后，消息与摘要都无法再被 Context Builder 或搜索读取。
 
 ## 4. P1：Context Builder 与历史摘要（v0.5.0 已实现）
 
@@ -384,7 +384,7 @@ type ToolPolicy = {
 - session token、DPAPI、Google OAuth scope 和 loopback 限制保持不变。
 - conversation、memory 和 workflow API 全部要求现有 session token。
 - 日志只记录 conversationId、runId、stepId 和引用 ID，不记录完整私人内容。
-- 会话和记忆必须提供删除能力；删除后 Context Builder 不得再读取。
+- 会话和记忆必须提供删除能力；删除会话时消息与摘要一并删除，删除后 Context Builder 不得再读取。
 - 归档不等于删除。
 - 默认保留期先设为“用户手动删除”；有真实磁盘或隐私需求后再增加自动清理策略。
 - 邮件和论文全文仍不复制进长期记忆或普通消息摘要。

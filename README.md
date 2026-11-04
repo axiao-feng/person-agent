@@ -10,10 +10,10 @@
 
 ### 把邮件、日历、论文和任务，整理成一条能执行、可回溯的研究时间线
 
-[![Version](https://img.shields.io/badge/version-0.8.0-4c8bf5?style=flat-square)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.1-4c8bf5?style=flat-square)](./CHANGELOG.md)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933?style=flat-square)](./package.json)
 [![.NET](https://img.shields.io/badge/.NET-8%20WPF-512bd4?style=flat-square)](./client/PersonAgent.Desktop/PersonAgent.Desktop.csproj)
-[![Tests](https://img.shields.io/badge/tests-117%20%2B%208-2e7d5b?style=flat-square)](./test)
+[![Tests](https://img.shields.io/badge/tests-120%20%2B%208-2e7d5b?style=flat-square)](./test)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4?style=flat-square)](./start-client.cmd)
 
 **Windows 10/11 · 单用户 · 本地优先 · 写外部系统必须先审批**
@@ -30,7 +30,7 @@ Person Agent 是一个面向研究生的 Windows 原生工作台。它只读 Gma
 
 它不是聊天机器人。日常界面是 WPF 客户端，领域数据在本地 SQLite 与 Obsidian 里；模型负责判断和表达，外部写入由确定性代码加审批门控执行。关闭浏览器、关掉终端也能用。
 
-> 当前版本 **0.8.0**。这是个人项目，没有公开远端，也没有发布承诺。本地 **117 项 Node 测试**与 **8 项桌面合同测试**通过。
+> 当前版本 **0.8.1**。这是个人项目，没有公开远端，也没有发布承诺。本地 **120 项 Node 测试**与 **8 项桌面合同测试**通过。
 
 ## 手工流程 vs Person Agent
 
@@ -167,7 +167,7 @@ pnpm test:desktop
 pnpm build
 ```
 
-- Node 测试 117 项：任务状态机、审批门控、候选时段、冲突重排、Obsidian 区块幂等、Zotero 分页与降级、会话往返与重启恢复、上下文预算与摘要、长期记忆、工作流等待与恢复、工具权限、引用复核，以及本地 API 的鉴权、降级与 `serve` 启停。
+- Node 测试 120 项：任务状态机、审批门控、候选时段、冲突重排、Obsidian 区块幂等、Zotero 分页与降级、会话往返与重启恢复、上下文预算与摘要、长期记忆、工作流等待与恢复、工具权限、引用复核，以及本地 API 的鉴权、降级与 `serve` 启停。
 - 桌面合同测试 8 项：深链参数、协议 URI、单实例 payload、客户端登记文件，以及会话、回答、引用与记忆的 DTO 解析。
 - 另有 20 条真实模型场景评测（`pnpm run eval:agent`），会实际调用 DeepSeek，不在普通 `pnpm test` 里跑。
 

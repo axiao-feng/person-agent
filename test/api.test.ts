@@ -532,11 +532,24 @@ test("a workflow run can be cancelled and terminal runs reject resume", async ()
       startAt: "2026-10-30T03:00:00Z",
       endAt: "2026-10-30T04:00:00Z",
     });
-    const body = (await staged.json()) as { workflowRunId: string };
+    const body = (await staged.json()) as { workflowRunId: string; approval: Approval };
+    const approvalId = body.approval.id;
+    assert.equal(body.approval.status, "pending");
 
     const cancelled = await api.send(`/api/workflows/${body.workflowRunId}/cancel`, "POST");
     assert.equal(cancelled.status, 200);
     assert.equal(((await cancelled.json()) as { run: WorkflowRunDto }).run.status, "cancelled");
+
+    const rejected = await api.get("/api/approvals?status=rejected");
+    const rejectedBody = (await rejected.json()) as { items: Approval[] };
+    assert.ok(
+      rejectedBody.items.some((item) => item.id === approvalId),
+      "cancelling the run must reject the approval it was waiting on",
+    );
+    const approve = await api.send(`/api/approvals/${approvalId}/approve`, "POST");
+    assert.equal(approve.status, 409);
+    assert.equal(api.fixture.createdEvents.length, 0);
+    assert.equal(api.fixture.database.getResearchTask(api.fixture.draftTaskId)?.status, "draft");
 
     const resume = await api.send(`/api/workflows/${body.workflowRunId}/resume`, "POST");
     assert.equal(resume.status, 409);

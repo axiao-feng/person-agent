@@ -27,6 +27,15 @@ test("memories deduplicate by normalized content and keep the higher importance"
     assert.equal(duplicate.memory.importance, 5);
     assert.equal(database.listAgentMemories({ now: NOW }).length, 1);
 
+    // Collapsed inner whitespace must deduplicate too, not only trimmed edges.
+    const spaced = database.createAgentMemory(
+      { kind: "preference", content: "偏好   上午  阅读论文", sourceType: "explicit_user" },
+      NOW,
+    );
+    assert.equal(spaced.created, false);
+    assert.equal(spaced.memory.id, first.memory.id);
+    assert.equal(database.listAgentMemories({ now: NOW }).length, 1);
+
     // Different kind is a different memory.
     const fact = database.createAgentMemory(
       { kind: "fact", content: "偏好 上午 阅读论文", sourceType: "explicit_user" },

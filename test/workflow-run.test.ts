@@ -8,7 +8,7 @@ import { executeStoredApproval, type ApprovalExecutor } from "../src/calendar-ac
 import { AppDatabase } from "../src/database.js";
 import type { CalendarEvent } from "../src/integrations/google.js";
 import { TASK_SCHEDULE_WORKFLOW, createWorkflowRegistry } from "../src/workflows/registry.js";
-import { advanceRun, resumePendingRuns, resumeRunsForApproval } from "../src/workflows/runtime.js";
+import { advanceRun, cancelRun, resumePendingRuns, resumeRunsForApproval } from "../src/workflows/runtime.js";
 
 const NOW = new Date("2026-11-04T02:00:00.000Z");
 const START = "2026-11-05T01:00:00.000Z";
@@ -155,7 +155,102 @@ test("a waiting run resumes after a process restart and stale running runs are r
   }
 });
 
-test("a run can be cancelled before the user approves", async () => {
+test("cancelling a waiting run rejects the approval it was waiting on", async () => {
+  const root = mkdtempSync(join(tmpdir(), "person-agent-workflow-run-test-"));
+  const database = new AppDatabase(join(root, "test.db"));
+  const registry = createWorkflowRegistry();
+  let executorCalls = 0;
+  const executor: ApprovalExecutor = {
+    async create(input) {
+      executorCalls += 1;
+      return eventWith("cancelled-event", input.title, input.startAt, input.endAt);
+    },
+    async update(id, input) {
+      executorCalls += 1;
+      return eventWith(id, input.title, input.startAt, input.endAt);
+    },
+  };
+  try {
+    const task = database.createResearchTask({ title: "不该写入日历", estimatedMinutes: 30 }, NOW);
+    const run = database.createWorkflowRun(
+      { kind: TASK_SCHEDULE_WORKFLOW, input: { taskId: task.id, startAt: START, endAt: END } },
+      NOW,
+    );
+    const waiting = await advanceRun({ database, registry }, run.id, NOW);
+    const approvalId = String(waiting.state.approvalId);
+    assert.equal(database.getWorkflowAction(approvalId)?.status, "pending");
+
+    // One more advance creates the polling step and pauses on the pending approval.
+    await advanceRun({ database, registry }, run.id, NOW);
+    assert.deepEqual(
+      database.listWorkflowSteps(run.id).map((step) => step.status),
+      ["succeeded", "pending"],
+    );
+
+    const cancelled = await cancelRun({ database, registry }, run.id, NOW);
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(
+      database.getWorkflowAction(approvalId)?.status,
+      "rejected",
+      "the pending approval must die with the run",
+    );
+    assert.deepEqual(
+      database.listWorkflowSteps(run.id).map((step) => step.status),
+      ["succeeded", "skipped"],
+    );
+
+    await assert.rejects(
+      executeStoredApproval({ database, actionId: approvalId, executor, now: NOW }),
+      /已被拒绝/,
+    );
+    assert.equal(executorCalls, 0, "no calendar write is attempted");
+    assert.equal(database.getResearchTask(task.id)?.status, "draft");
+
+    const again = await cancelRun({ database, registry }, run.id, NOW);
+    assert.equal(again.status, "cancelled", "cancel is idempotent");
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cancelling a run whose approval already executed finishes it instead", async () => {
+  const root = mkdtempSync(join(tmpdir(), "person-agent-workflow-run-test-"));
+  const database = new AppDatabase(join(root, "test.db"));
+  const registry = createWorkflowRegistry();
+  try {
+    const task = database.createResearchTask({ title: "已经写入日历", estimatedMinutes: 30 }, NOW);
+    const run = database.createWorkflowRun(
+      { kind: TASK_SCHEDULE_WORKFLOW, input: { taskId: task.id, startAt: START, endAt: END } },
+      NOW,
+    );
+    const waiting = await advanceRun({ database, registry }, run.id, NOW);
+    const approvalId = String(waiting.state.approvalId);
+    await executeStoredApproval({
+      database,
+      actionId: approvalId,
+      executor: {
+        async create(input) {
+          return eventWith("already-written", input.title, input.startAt, input.endAt);
+        },
+        async update(id, input) {
+          return eventWith(id, input.title, input.startAt, input.endAt);
+        },
+      },
+      now: NOW,
+    });
+
+    const result = await cancelRun({ database, registry }, run.id, NOW);
+    assert.equal(result.status, "succeeded", "the calendar write already happened");
+    assert.equal(database.getResearchTask(task.id)?.status, "planned");
+    assert.equal(database.getWorkflowAction(approvalId)?.status, "executed");
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a cancelled run is never advanced again", async () => {
   const root = mkdtempSync(join(tmpdir(), "person-agent-workflow-run-test-"));
   const database = new AppDatabase(join(root, "test.db"));
   const registry = createWorkflowRegistry();
@@ -166,7 +261,7 @@ test("a run can be cancelled before the user approves", async () => {
       NOW,
     );
     await advanceRun({ database, registry }, run.id, NOW);
-    const cancelled = database.cancelWorkflowRun(run.id, NOW);
+    const cancelled = await cancelRun({ database, registry }, run.id, NOW);
     assert.equal(cancelled.status, "cancelled");
     const again = await advanceRun({ database, registry }, run.id, NOW);
     assert.equal(again.status, "cancelled", "terminal runs are never re-executed");
