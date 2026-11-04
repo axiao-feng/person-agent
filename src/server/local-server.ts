@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import { createAssistant, promptForText } from "../agent.js";
+import { conversationAgentFactory, runConversationTurn } from "../agent/session.js";
 import { defaultApprovalExecutor, WorkflowActionError, type ApprovalExecutor } from "../calendar-actions.js";
 import type { AppConfig } from "../config.js";
 import type { AppDatabase } from "../database.js";
@@ -12,6 +12,8 @@ import type { Logger } from "../logger.js";
 import type { AppPaths } from "../paths.js";
 import type {
   AgentService,
+  AgentTurn,
+  AgentTurnInput,
   KnowledgeService,
   RouteRequest,
   RuntimeConfig,
@@ -348,11 +350,16 @@ const defaultKnowledgeService: KnowledgeService = {
   },
 };
 
-async function defaultAgentService(request: RouteRequest, message: string): Promise<string> {
-  const agent = await createAssistant({
-    paths: request.paths,
-    config: request.runtime.config,
+async function defaultAgentService(request: RouteRequest, input: AgentTurnInput): Promise<AgentTurn> {
+  return await runConversationTurn({
     database: request.database,
+    message: input.message,
+    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+    createAgent: conversationAgentFactory({
+      paths: request.paths,
+      config: request.runtime.config,
+      database: request.database,
+    }),
+    now: request.now,
   });
-  return await promptForText(agent, message);
 }

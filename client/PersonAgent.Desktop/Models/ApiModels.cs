@@ -372,6 +372,8 @@ public sealed class AgentMessageResponse
     public string ConversationId { get; set; } = "";
     public string Answer { get; set; } = "";
     public List<AgentReference> References { get; set; } = new();
+    public ConversationSummary Conversation { get; set; } = new();
+    public List<TranscriptMessage> Messages { get; set; } = new();
 }
 
 public sealed class AgentReference
@@ -379,5 +381,47 @@ public sealed class AgentReference
     public string Type { get; set; } = "";
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
+}
+
+public sealed class ConversationSummary
+{
+    public string Id { get; set; } = "";
+    public string? Title { get; set; }
+    public string Status { get; set; } = "active";
+    public string CreatedAt { get; set; } = "";
+    public string UpdatedAt { get; set; } = "";
+    public string? LastMessageAt { get; set; }
+    public int MessageCount { get; set; }
+}
+
+public sealed class ConversationListResponse
+{
+    public List<ConversationSummary> Items { get; set; } = new();
+}
+
+public sealed class ConversationResponse
+{
+    public ConversationSummary Conversation { get; set; } = new();
+}
+
+public sealed class DeleteConversationResponse
+{
+    public string ConversationId { get; set; } = "";
+    public bool Deleted { get; set; }
+}
+
+public sealed class TranscriptMessage
+{
+    public string Id { get; set; } = "";
+    public int Sequence { get; set; }
+    public string Role { get; set; } = "";
+    public string Text { get; set; } = "";
+    public string CreatedAt { get; set; } = "";
+}
+
+public sealed class ConversationMessagesResponse
+{
+    public ConversationSummary Conversation { get; set; } = new();
+    public List<TranscriptMessage> Messages { get; set; } = new();
 }
 

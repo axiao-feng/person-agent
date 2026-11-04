@@ -1,6 +1,6 @@
 # Person Agent 新增 Agent 能力技术栈
 
-> 文档状态：v0.3.1 后续实现建议
+> 文档状态：v0.4.0 已实现 P0（持久化多轮会话）；P1/P2 待实现
 >
 > 对应需求：`PRODUCT_DESIGN.md` 第 16 节
 >
@@ -52,7 +52,16 @@
 
 现有项目已经用 SQLite 持久化任务、审批、作业运行和长操作，并用 Windows worker 处理补发与恢复。新增 Agent 能力应复用同一数据库、事务模式和 worker，不增加 Redis 或独立进程管理器。
 
-## 3. P0：持久化多轮会话
+## 3. P0：持久化多轮会话（v0.4.0 已实现）
+
+### 3.0 实现状态
+
+- 数据模型：`agent_conversations`、`agent_messages` 落在 `src/database.ts` 的迁移块，配套 `createAgentConversation`、`appendAgentTranscript`、`listAgentTranscript`、`deleteAgentConversation` 等方法。
+- 会话编排：新增 `src/agent/session.ts`，把“加载历史 → 先写用户消息 → 执行一轮 → 单事务追加结果”收敛为一个函数（`runConversationTurn`），配套 `loadConversationHistory` 与 `conversationAgentFactory`。
+- API：`src/server/routes/conversations.ts` 提供 `/api/conversations*`；`/api/agent/messages` 作为兼容入口复用同一 `sendAgentTurn`。
+- 客户端：`CommandPaletteViewModel` 持有 conversation ID 并恢复最近一次 active 对话，`LocalApiClient` 增加会话方法。
+- 测试：`test/conversation.test.ts`（6 项）+ `test/api.test.ts` 会话用例（2 项）+ 2 项 WPF DTO 合同测试。
+- 尚未做的 P0 收尾项：CLI `chat` 仍未写入会话表；保留策略是“用户手动删除”。
 
 ### 3.1 模块
 
@@ -363,7 +372,7 @@ type ToolPolicy = {
 
 ## 12. 实施顺序
 
-### 第一批：P0 会话闭环
+### 第一批：P0 会话闭环（v0.4.0 已完成）
 
 1. `agent_conversations`、`agent_messages` 迁移和仓储方法。
 2. Session Manager 加载/保存 `AgentMessage[]`。

@@ -218,3 +218,49 @@ export type IdeaDto = {
   tags: string[];
   openUrl: string | null;
 };
+
+export type ConversationStatus = "active" | "archived";
+
+export type ConversationDto = {
+  id: string;
+  title: string | null;
+  status: ConversationStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string | null;
+  messageCount: number;
+};
+
+export type TranscriptMessageDto = {
+  id: string;
+  sequence: number;
+  role: "user" | "assistant" | "toolResult" | "system";
+  text: string;
+  createdAt: string;
+};
+
+export type AgentReferenceDto = {
+  type: "paper" | "task" | "idea" | "lecture" | "approval";
+  id: string;
+  title: string;
+};
+
+export type ConversationListResponse = ResponseMeta & {
+  items: ConversationDto[];
+};
+
+export type ConversationResponse = ResponseMeta & {
+  conversation: ConversationDto;
+};
+
+export type ConversationTranscriptResponse = ResponseMeta & {
+  conversation: ConversationDto;
+  messages: TranscriptMessageDto[];
+};
+
+export type AgentMessageResponse = ResponseMeta & {
+  conversationId: string;
+  answer: string;
+  references: AgentReferenceDto[];
+  conversation: ConversationDto;
+};

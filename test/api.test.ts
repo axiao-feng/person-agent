@@ -7,6 +7,7 @@ import test from "node:test";
 import type { ApprovalExecutor } from "../src/calendar-actions.js";
 import type { AppConfig } from "../src/config.js";
 import { AppDatabase } from "../src/database.js";
+import { ConversationArchivedError, ConversationNotFoundError, conversationTitleFrom } from "../src/agent/session.js";
 import type { CalendarEvent } from "../src/integrations/google.js";
 import type { AppPaths } from "../src/paths.js";
 import {
@@ -17,9 +18,12 @@ import type { CalendarSource } from "../src/server/sources.js";
 import type {
   Approval,
   CalendarResponse,
+  ConversationDto,
+  ConversationTranscriptResponse,
   OperationDto,
   PaperSummary,
   Settings,
+  TranscriptMessageDto,
 } from "../src/server/types.js";
 
 const NOW = new Date("2026-10-30T02:00:00.000Z"); // 10:00 in Shanghai
@@ -320,21 +324,96 @@ test("ideas write Obsidian notes and search keeps library results separate", asy
   });
 });
 
-test("agent endpoint reuses the agent and rejects empty messages", async () => {
+test("agent messages persist a conversation that later turns continue", async () => {
   await withApi(async (api) => {
-    const response = await api.send("/api/agent/messages", "POST", { message: "今天做什么？" });
-    assert.equal(response.status, 200);
-    const body = (await response.json()) as {
+    const first = await api.send("/api/agent/messages", "POST", { message: "今天做什么？" });
+    assert.equal(first.status, 200);
+    const firstBody = (await first.json()) as {
       answer: string;
       references: unknown[];
       conversationId: string;
+      conversation: ConversationDto;
+      messages: TranscriptMessageDto[];
     };
-    assert.equal(body.answer, "回答：今天做什么？");
-    assert.deepEqual(body.references, []);
-    assert.ok(body.conversationId);
+    assert.equal(firstBody.answer, "回答：今天做什么？");
+    assert.deepEqual(firstBody.references, []);
+    assert.ok(firstBody.conversationId);
+    assert.equal(firstBody.conversation.title, "今天做什么？");
+    assert.equal(firstBody.messages.length, 2);
+
+    const list = await api.get("/api/conversations?status=active");
+    const listBody = (await list.json()) as { items: ConversationDto[] };
+    assert.equal(listBody.items.length, 1);
+    assert.equal(listBody.items[0]?.id, firstBody.conversationId);
+
+    const second = await api.send("/api/agent/messages", "POST", {
+      conversationId: firstBody.conversationId,
+      message: "接着上一条",
+    });
+    assert.equal(second.status, 200);
+    const secondBody = (await second.json()) as {
+      conversationId: string;
+      conversation: ConversationDto;
+    };
+    assert.equal(secondBody.conversationId, firstBody.conversationId);
+    assert.equal(secondBody.conversation.messageCount, 4);
+
+    const transcript = await api.get(`/api/conversations/${firstBody.conversationId}/messages`);
+    assert.equal(transcript.status, 200);
+    const transcriptBody = (await transcript.json()) as ConversationTranscriptResponse;
+    assert.deepEqual(
+      transcriptBody.messages.map((message) => message.role),
+      ["user", "assistant", "user", "assistant"],
+    );
+    assert.equal(transcriptBody.messages[3]?.text, "回答：接着上一条");
 
     const empty = await api.send("/api/agent/messages", "POST", { message: "  " });
     assert.equal(empty.status, 422);
+
+    const missing = await api.send(
+      "/api/conversations/00000000-0000-4000-8000-000000000000/messages",
+      "POST",
+      { message: "还在吗" },
+    );
+    assert.equal(missing.status, 404);
+  });
+});
+
+test("conversations can be created, archived, and deleted", async () => {
+  await withApi(async (api) => {
+    const created = await api.send("/api/conversations", "POST", {});
+    assert.equal(created.status, 201);
+    const createdBody = (await created.json()) as { conversation: ConversationDto };
+    const id = createdBody.conversation.id;
+    assert.equal(createdBody.conversation.status, "active");
+    assert.equal(createdBody.conversation.title, null);
+
+    const renamed = await api.send(`/api/conversations/${id}`, "PATCH", { title: "实验讨论" });
+    assert.equal(renamed.status, 200);
+    assert.equal(
+      ((await renamed.json()) as { conversation: ConversationDto }).conversation.title,
+      "实验讨论",
+    );
+
+    const archived = await api.send(`/api/conversations/${id}`, "PATCH", { status: "archived" });
+    assert.equal(archived.status, 200);
+    assert.equal(
+      ((await archived.json()) as { conversation: ConversationDto }).conversation.status,
+      "archived",
+    );
+
+    const blocked = await api.send(`/api/conversations/${id}/messages`, "POST", { message: "继续" });
+    assert.equal(blocked.status, 409);
+
+    const active = await api.get("/api/conversations?status=active");
+    assert.deepEqual(((await active.json()) as { items: ConversationDto[] }).items, []);
+
+    const deleted = await api.send(`/api/conversations/${id}`, "DELETE");
+    assert.equal(deleted.status, 200);
+    const missing = await api.get(`/api/conversations/${id}/messages`);
+    assert.equal(missing.status, 404);
+    const removedAgain = await api.send(`/api/conversations/${id}`, "DELETE");
+    assert.equal(removedAgain.status, 404);
   });
 });
 
@@ -409,7 +488,7 @@ type ApiFixture = {
 type ApiClient = {
   fixture: ApiFixture;
   get(path: string): Promise<Response>;
-  send(path: string, method: "POST" | "PATCH", body?: unknown): Promise<Response>;
+  send(path: string, method: "POST" | "PATCH" | "DELETE", body?: unknown): Promise<Response>;
   waitOperation(id: string): Promise<OperationDto>;
 };
 
@@ -507,7 +586,44 @@ async function withApi(
             },
           },
         }),
-    agent: options.agent ?? (async (_request, message) => `回答：${message}`),
+    agent:
+      options.agent ??
+      (async (request, input) => {
+        const conversation = input.conversationId
+          ? request.database.getAgentConversation(input.conversationId)
+          : request.database.createAgentConversation(undefined, NOW);
+        if (!conversation) throw new ConversationNotFoundError(input.conversationId!);
+        if (conversation.status === "archived") throw new ConversationArchivedError(conversation.id);
+        const titled = conversation.title
+          ? conversation
+          : request.database.updateAgentConversation(
+              conversation.id,
+              { title: conversationTitleFrom(input.message) },
+              NOW,
+            );
+        const persisted = request.database.appendAgentTranscript(
+          titled.id,
+          [
+            { role: "user", message: { role: "user", content: input.message, timestamp: NOW.getTime() } },
+            {
+              role: "assistant",
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: `回答：${input.message}` }],
+                stopReason: "stop",
+                timestamp: NOW.getTime(),
+              },
+            },
+          ],
+          NOW,
+        );
+        return {
+          conversation: request.database.getAgentConversation(titled.id) ?? titled,
+          answer: `回答：${input.message}`,
+          references: [],
+          messages: persisted,
+        };
+      }),
   });
   const baseUrl = `http://127.0.0.1:${server.port}`;
   const fixture: ApiFixture = {

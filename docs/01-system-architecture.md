@@ -113,15 +113,17 @@ client/PersonAgent.Desktop/
 
 本地服务不得成为第二套领域层。路由处理器不应直接写 SQL，也不应复制 `AppDatabase` 中的校验。
 
+Agent 对话同理：`/api/conversations*` 只做 DTO 转换，会话加载、消息持久化和单轮执行由 `src/agent/session.ts` 负责，客户端不缓存第二份轨迹。
+
 ### 4.3 领域层
 
 现有领域能力包括：
 
-- `AppDatabase`：讲座、提醒、科研任务、审批、Zotero 状态、定时任务与运行记录。
+- `AppDatabase`：讲座、提醒、科研任务、审批、Zotero 状态、定时任务与运行记录、Agent 会话与消息。
 - `schedule.ts`：时区、周期计算和空闲时段。
 - `knowledge/`：Zotero 同步、论文分析、Vault 写入、日报生成和打开笔记。
 - `integrations/`：Google 与天气。
-- `agent.ts`、`tools.ts`：模型调用和工具门控。
+- `agent.ts`、`agent/session.ts`、`tools.ts`：模型调用、会话加载与持久化、工具门控。
 - `worker.ts`：定时任务、补发、通知和计划冲突检查。
 
 新增 HTTP 功能时，优先把可复用的领域操作提取为普通函数，再让 CLI、HTTP、worker 共同调用；不要让 HTTP 调 CLI 子进程。
@@ -184,7 +186,7 @@ UI 退出不能停止 worker。UI 可以显示 worker 状态，但不能把“Wi
 
 | 数据 | 真相来源 | 权限 |
 | --- | --- | --- |
-| 任务、讲座、提醒、审批、论文处理状态 | SQLite | 读写 |
+| 任务、讲座、提醒、审批、论文处理状态、Agent 会话与消息 | SQLite | 读写 |
 | Idea、论文卡片、日报 | Obsidian Markdown | 仅更新程序管理区块 |
 | 文献题录与全文 | Zotero 本地 API | 只读 |
 | 邮件 | Gmail | 只读 |
@@ -273,6 +275,11 @@ UI 不重新计算重点顺序、冲突或“可用专注时间”。没有可�
 - 已完成：删除 WinForms 业务表单、`launcher/` 和 `demo/`；README 主流程不再依赖旧入口。
 - 已完成：审批失败重试/历史、离线与局部失败状态、通知深链端到端验证。
 - 待完成：发布/升级/回滚手册，MSIX 或传统安装器决策，高 DPI 125%–200% 逐档视觉验收。
+
+### 阶段 6：Agent 会话（v0.4.0 已完成 P0）
+
+- 已完成：`agent_conversations` / `agent_messages`、`src/agent/session.ts`、`/api/conversations*`、WPF 多轮对话与重启恢复。
+- 待完成：Context Builder（历史裁剪、摘要、token 预算）、分层长期记忆、持久 Workflow Run、工具权限策略和回答引用。
 
 ## 12. 暂不决定的事项
 

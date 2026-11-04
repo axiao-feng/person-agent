@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using PersonAgent.Desktop.Models;
 using PersonAgent.Desktop.Services;
 
 var passed = 0;
@@ -79,6 +80,71 @@ Check("Desktop registration writes executable metadata to an explicit home", () 
     {
         if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
     }
+});
+
+Check("Conversation transcript JSON maps to persisted messages", () =>
+{
+    const string json = """
+        {
+          "conversation": {
+            "id": "conv-1",
+            "title": "帮我安排今天的阅读",
+            "status": "active",
+            "createdAt": "2026-11-04T02:00:00.000Z",
+            "updatedAt": "2026-11-04T02:05:00.000Z",
+            "lastMessageAt": "2026-11-04T02:05:00.000Z",
+            "messageCount": 2
+          },
+          "messages": [
+            { "id": "m1", "sequence": 1, "role": "user", "text": "帮我安排今天的阅读", "createdAt": "2026-11-04T02:00:00.000Z" },
+            { "id": "m2", "sequence": 2, "role": "assistant", "text": "先看两篇论文。", "createdAt": "2026-11-04T02:00:10.000Z" }
+          ],
+          "requestId": "r1",
+          "generatedAt": "2026-11-04T02:05:00.000Z"
+        }
+        """;
+    var options = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    var parsed = JsonSerializer.Deserialize<ConversationMessagesResponse>(json, options);
+    if (parsed is null) throw new InvalidOperationException("transcript did not deserialize");
+    Equal("conv-1", parsed.Conversation.Id, "conversation id");
+    Equal("帮我安排今天的阅读", parsed.Conversation.Title, "conversation title");
+    Equal(2, parsed.Conversation.MessageCount, "message count");
+    Equal(2, parsed.Messages.Count, "message rows");
+    Equal("user", parsed.Messages[0].Role, "first role");
+    Equal(2, parsed.Messages[1].Sequence, "second sequence");
+    Equal("先看两篇论文。", parsed.Messages[1].Text, "assistant text");
+});
+
+Check("Agent message response carries the continued conversation id and new rows", () =>
+{
+    const string json = """
+        {
+          "conversationId": "conv-1",
+          "answer": "第二轮回答",
+          "references": [],
+          "conversation": { "id": "conv-1", "title": "测试", "status": "active", "createdAt": "", "updatedAt": "", "lastMessageAt": null, "messageCount": 4 },
+          "messages": [
+            { "id": "m3", "sequence": 3, "role": "user", "text": "继续", "createdAt": "" },
+            { "id": "m4", "sequence": 4, "role": "assistant", "text": "第二轮回答", "createdAt": "" }
+          ]
+        }
+        """;
+    var options = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    var parsed = JsonSerializer.Deserialize<AgentMessageResponse>(json, options);
+    if (parsed is null) throw new InvalidOperationException("agent response did not deserialize");
+    Equal("conv-1", parsed.ConversationId, "conversation id");
+    Equal(4, parsed.Conversation.MessageCount, "message count");
+    Equal(2, parsed.Messages.Count, "new rows");
+    Equal("继续", parsed.Messages[0].Text, "user row");
+    Equal("第二轮回答", parsed.Answer, "answer");
 });
 
 if (failures.Count > 0)

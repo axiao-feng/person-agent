@@ -240,12 +240,70 @@ public sealed class LocalApiClient : IDisposable
         return GetAsync<SearchResponse>(path, cancellationToken);
     }
 
-    public Task<AgentMessageResponse> SendAgentMessageAsync(string message, CancellationToken cancellationToken = default) =>
+    public Task<AgentMessageResponse> SendAgentMessageAsync(
+        string message,
+        string? conversationId = null,
+        CancellationToken cancellationToken = default) =>
         SendAsync<AgentMessageResponse>(
             HttpMethod.Post,
             "api/agent/messages",
-            new { Message = message },
+            new { Message = message, ConversationId = conversationId },
             TimeSpan.FromSeconds(180),
+            cancellationToken);
+
+    public Task<ConversationListResponse> GetConversationsAsync(
+        string? status = "active",
+        int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var path = $"api/conversations?limit={limit}";
+        if (!string.IsNullOrWhiteSpace(status)) path += $"&status={Uri.EscapeDataString(status)}";
+        return GetAsync<ConversationListResponse>(path, cancellationToken);
+    }
+
+    public Task<ConversationMessagesResponse> GetConversationMessagesAsync(
+        string conversationId,
+        int limit = 200,
+        CancellationToken cancellationToken = default) =>
+        GetAsync<ConversationMessagesResponse>(
+            $"api/conversations/{Uri.EscapeDataString(conversationId)}/messages?limit={limit}",
+            cancellationToken);
+
+    public Task<ConversationResponse> CreateConversationAsync(
+        string? title = null,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<ConversationResponse>(
+            HttpMethod.Post,
+            "api/conversations",
+            new { Title = title },
+            TimeSpan.FromSeconds(20),
+            cancellationToken);
+
+    public Task<ConversationResponse> UpdateConversationAsync(
+        string conversationId,
+        string? title,
+        string? status,
+        CancellationToken cancellationToken = default)
+    {
+        var body = new Dictionary<string, object?>();
+        if (title is not null) body["title"] = title;
+        if (status is not null) body["status"] = status;
+        return SendAsync<ConversationResponse>(
+            HttpMethod.Patch,
+            $"api/conversations/{Uri.EscapeDataString(conversationId)}",
+            body,
+            TimeSpan.FromSeconds(20),
+            cancellationToken);
+    }
+
+    public Task<DeleteConversationResponse> DeleteConversationAsync(
+        string conversationId,
+        CancellationToken cancellationToken = default) =>
+        SendAsync<DeleteConversationResponse>(
+            HttpMethod.Delete,
+            $"api/conversations/{Uri.EscapeDataString(conversationId)}",
+            null,
+            TimeSpan.FromSeconds(20),
             cancellationToken);
 
     private Task<T> GetAsync<T>(string path, CancellationToken cancellationToken) =>

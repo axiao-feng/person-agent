@@ -1,5 +1,46 @@
 # 更新日志
 
+## v0.4.0 — 2026-11-04
+
+实现 `PRODUCT_DESIGN.md` §16.8 的 P0：桌面端 Agent 会话与消息持久化，关闭客户端或本地服务后仍能继续同一对话。
+
+### 新增
+
+**会话与消息持久化**
+- SQLite 新增 `agent_conversations`、`agent_messages`：保存标题、归档状态、最后消息时间，以及每条 `AgentMessage` 的完整 JSON（含 assistant tool call、toolResult、usage 和错误）。`UNIQUE(conversation_id, sequence)` 保证轨迹顺序，`schema_version` 留给后续迁移。
+- 新增 `src/agent/session.ts`：`runConversationTurn` 先按会话加载历史，在模型调用前持久化用户消息，再在本轮结束后用单个事务追加 assistant/toolResult 消息。
+- 首条用户消息自动生成会话标题；工具调用与工具结果原样往返；尾部未完成的 tool call 在下一轮前被丢弃，避免把畸形 transcript 交给模型。
+- 模型失败时保存 `stopReason=error` 的 assistant 消息并返回明确错误，不再把上一轮回答当成本轮结果。
+
+**本地 API**
+- 新增 `POST/GET /api/conversations`、`GET/POST /api/conversations/:id/messages`、`PATCH/DELETE /api/conversations/:id`。
+- `POST /api/agent/messages` 保留为兼容入口，现在会读取 `conversationId`、返回 `conversation` 与本轮 `messages`，不再每次生成新的随机 ID。
+- 会话接口沿用 loopback + session token；不存在的会话返回 404，归档会话追加消息返回 409，模型不可用返回 503。
+
+**WPF 客户端**
+- `Ctrl+K` 面板的 Agent 区改为多轮对话：展示用户 / Agent / 工具结果消息轨迹和当前对话标题，并提供“新对话”“删除对话”。
+- 打开面板时按最近更新时间恢复最近一次 active 对话并滚动到最新消息；关闭客户端或本地服务后重新打开仍能继续。
+- 新增会话 DTO 与 `LocalApiClient` 会话方法，删除会话前要求二次确认。
+
+**测试与文档**
+- 新增 `test/conversation.test.ts`（6 项）与 API 会话测试（2 项），覆盖两轮对话、进程重启恢复、工具消息往返、悬空 tool call 裁剪、失败轮次、归档与删除。
+- 新增 2 项桌面合同测试（会话轨迹与回答 DTO 解析），桌面合同测试共 6 项。
+- `docs/api/openapi.yaml` 增加会话合同；`PRODUCT_DESIGN.md` 增加阶段 6 并更新 §16.1 的已实现状态。
+
+### 验证
+
+- `pnpm test`：85 项通过（v0.3.1 为 78 项）。
+- `pnpm test:desktop`：6 项通过。
+- TypeScript 类型检查与 `dist` 构建通过；WPF Debug 构建 0 警告 0 错误。
+- 使用隔离 `PERSON_AGENT_HOME` 启动真实 `serve` 进程实测：创建会话 → 追加消息（本机未配置 DeepSeek key，按设计先落库用户消息再返回 503）→ 读取轨迹 → 归档 → 删除 → 再次读取返回 404。
+- UI Automation 实测：在隔离数据库中预置一条历史对话后启动客户端，`Ctrl+K` 打开面板即显示“继续：恢复测试对话”、用户消息与 Agent 回答，`新对话` / `删除对话` 可用；关闭后无残留进程。
+
+### 已知限制
+
+- 本机未配置 DeepSeek key，未执行真实模型的两轮对话实测；多轮 replay 由 faux 模型测试覆盖。
+- 历史裁剪、历史摘要、长期记忆、持久 Workflow Run、工具权限策略和回答引用仍按 §16.8 的 P1/P2 顺序未实现。
+- CLI `chat` 仍是进程内会话，不写入 `agent_conversations`。
+
 ## v0.3.1 — 2026-10-31
 
 修复 v0.3.0 验收发现的通知深链与后台任务问题。

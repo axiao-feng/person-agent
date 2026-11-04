@@ -1,5 +1,7 @@
+using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using PersonAgent.Desktop.Models;
 using PersonAgent.Desktop.Services;
 using PersonAgent.Desktop.ViewModels;
@@ -21,7 +23,17 @@ public partial class CommandPaletteWindow : Window
             RequestClose = Close,
         };
         DataContext = _viewModel;
-        Loaded += (_, _) => QueryTextBox.Focus();
+        _viewModel.Transcript.CollectionChanged += Transcript_CollectionChanged;
+        Loaded += async (_, _) =>
+        {
+            QueryTextBox.Focus();
+            await _viewModel.LoadConversationAsync();
+        };
+    }
+
+    private void Transcript_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => TranscriptScrollViewer.ScrollToEnd()));
     }
 
     private void QueryTextBox_KeyDown(object sender, KeyEventArgs e)

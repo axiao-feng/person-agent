@@ -17,6 +17,9 @@ export async function createAssistant(options: {
   mode?: AssistantMode;
   streamToConsole?: boolean;
   extraToolModules?: ToolModule[];
+  /** Persisted transcript replayed before the new prompt. */
+  messages?: AgentMessage[];
+  sessionId?: string;
 }): Promise<Agent> {
   const models = await configuredModels(options.paths);
   const model = models.getModel("deepseek", "deepseek-flash");
@@ -32,7 +35,9 @@ export async function createAssistant(options: {
         mode,
         options.extraToolModules ?? [],
       ),
+      ...(options.messages && options.messages.length > 0 ? { messages: options.messages } : {}),
     },
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     streamFn: models.streamSimple.bind(models),
     toolExecution: "parallel",
   });

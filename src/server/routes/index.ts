@@ -2,6 +2,7 @@ import type { Route } from "../context.js";
 import { agentRoutes } from "./agent.js";
 import { approvalRoutes } from "./approvals.js";
 import { calendarRoutes } from "./calendar.js";
+import { conversationRoutes } from "./conversations.js";
 import { ideaRoutes } from "./ideas.js";
 import { knowledgeRoutes } from "./knowledge.js";
 import { lectureRoutes } from "./lectures.js";
@@ -24,5 +25,6 @@ export const routes: Route[] = [
   ...approvalRoutes,
   ...settingsRoutes,
   ...searchRoutes,
+  ...conversationRoutes,
   ...agentRoutes,
 ];

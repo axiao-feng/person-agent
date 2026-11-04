@@ -186,7 +186,42 @@ export type WorkflowAction = {
   executedAt: string | null;
 };
 
+export type AgentConversationStatus = "active" | "archived";
+
+export type AgentConversation = {
+  id: string;
+  title: string | null;
+  status: AgentConversationStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string | null;
+  messageCount: number;
+};
+
+/** One persisted `AgentMessage` exactly as pi-agent-core produced it. */
+export type AgentTranscriptEntry = {
+  id: string;
+  conversationId: string;
+  sequence: number;
+  role: string;
+  schemaVersion: number;
+  message: unknown;
+  createdAt: string;
+};
+
+export type AgentTranscriptInput = {
+  role: string;
+  message: unknown;
+};
+
+export const AGENT_MESSAGE_SCHEMA_VERSION = 1;
+export const AGENT_CONVERSATION_TITLE_MAX = 120;
+
 type Row = Record<string, SQLOutputValue>;
+
+const AGENT_CONVERSATION_SELECT = `SELECT c.*,
+  (SELECT COUNT(*) FROM agent_messages m WHERE m.conversation_id = c.id) AS message_count
+  FROM agent_conversations c`;
 
 export class AppDatabase {
   readonly sqlite: DatabaseSync;
@@ -1111,6 +1146,150 @@ export class AppDatabase {
     return row ? parseJobRun(row) : undefined;
   }
 
+  createAgentConversation(title?: string, now = new Date()): AgentConversation {
+    const id = randomUUID();
+    const normalized = title?.trim() ? requiredText(title, "会话标题", AGENT_CONVERSATION_TITLE_MAX) : null;
+    this.sqlite
+      .prepare(
+        `INSERT INTO agent_conversations (id, title, status, created_at, updated_at, last_message_at)
+         VALUES (?, ?, 'active', ?, ?, NULL)`,
+      )
+      .run(id, normalized, now.toISOString(), now.toISOString());
+    return this.getAgentConversationRequired(id);
+  }
+
+  getAgentConversation(id: string): AgentConversation | undefined {
+    const row = this.sqlite
+      .prepare(
+        `${AGENT_CONVERSATION_SELECT}
+         WHERE c.id = ?`,
+      )
+      .get(id) as Row | undefined;
+    return row ? parseAgentConversation(row) : undefined;
+  }
+
+  listAgentConversations(options: { status?: AgentConversationStatus; limit?: number } = {}): AgentConversation[] {
+    const limit = options.limit ?? 20;
+    const rows = options.status
+      ? this.sqlite
+          .prepare(
+            `${AGENT_CONVERSATION_SELECT}
+             WHERE c.status = ?
+             ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC, c.created_at DESC
+             LIMIT ?`,
+          )
+          .all(options.status, limit)
+      : this.sqlite
+          .prepare(
+            `${AGENT_CONVERSATION_SELECT}
+             ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC, c.created_at DESC
+             LIMIT ?`,
+          )
+          .all(limit);
+    return (rows as Row[]).map(parseAgentConversation);
+  }
+
+  updateAgentConversation(
+    id: string,
+    patch: { title?: string | null; status?: AgentConversationStatus },
+    now = new Date(),
+  ): AgentConversation {
+    const conversation = this.getAgentConversationRequired(id);
+    const title =
+      patch.title === undefined
+        ? conversation.title
+        : patch.title === null
+          ? null
+          : requiredText(patch.title, "会话标题", AGENT_CONVERSATION_TITLE_MAX);
+    const status = patch.status ?? conversation.status;
+    this.sqlite
+      .prepare("UPDATE agent_conversations SET title = ?, status = ?, updated_at = ? WHERE id = ?")
+      .run(title, status, now.toISOString(), id);
+    return this.getAgentConversationRequired(id);
+  }
+
+  deleteAgentConversation(id: string): boolean {
+    return this.transaction(() => {
+      const existing = this.sqlite
+        .prepare("SELECT 1 AS present FROM agent_conversations WHERE id = ?")
+        .get(id) as Row | undefined;
+      if (!existing) return false;
+      this.sqlite.prepare("DELETE FROM agent_messages WHERE conversation_id = ?").run(id);
+      this.sqlite.prepare("DELETE FROM agent_conversations WHERE id = ?").run(id);
+      return true;
+    });
+  }
+
+  /** Appends one turn's messages with contiguous sequences in a single transaction. */
+  appendAgentTranscript(
+    conversationId: string,
+    entries: AgentTranscriptInput[],
+    now = new Date(),
+  ): AgentTranscriptEntry[] {
+    if (entries.length === 0) return [];
+    const conversation = this.getAgentConversationRequired(conversationId);
+    const timestamp = now.toISOString();
+    return this.transaction(() => {
+      const row = this.sqlite
+        .prepare("SELECT COALESCE(MAX(sequence), 0) AS last FROM agent_messages WHERE conversation_id = ?")
+        .get(conversationId) as Row;
+      let sequence = Number(row.last ?? 0);
+      const created: AgentTranscriptEntry[] = [];
+      const insert = this.sqlite.prepare(
+        `INSERT INTO agent_messages
+         (id, conversation_id, sequence, role, schema_version, message_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const entry of entries) {
+        sequence += 1;
+        const id = randomUUID();
+        insert.run(
+          id,
+          conversationId,
+          sequence,
+          entry.role,
+          AGENT_MESSAGE_SCHEMA_VERSION,
+          JSON.stringify(entry.message),
+          timestamp,
+        );
+        created.push({
+          id,
+          conversationId,
+          sequence,
+          role: entry.role,
+          schemaVersion: AGENT_MESSAGE_SCHEMA_VERSION,
+          message: entry.message,
+          createdAt: timestamp,
+        });
+      }
+      this.sqlite
+        .prepare("UPDATE agent_conversations SET updated_at = ?, last_message_at = ? WHERE id = ?")
+        .run(timestamp, timestamp, conversationId);
+      return created;
+    });
+  }
+
+  listAgentTranscript(conversationId: string): AgentTranscriptEntry[] {
+    this.getAgentConversationRequired(conversationId);
+    const rows = this.sqlite
+      .prepare("SELECT * FROM agent_messages WHERE conversation_id = ? ORDER BY sequence")
+      .all(conversationId);
+    return (rows as Row[]).map(parseAgentTranscriptEntry);
+  }
+
+  countAgentMessages(conversationId: string): number {
+    const row = this.sqlite
+      .prepare("SELECT COUNT(*) AS total FROM agent_messages WHERE conversation_id = ?")
+      .get(conversationId) as Row;
+    return Number(row.total ?? 0);
+  }
+
+  private getAgentConversationRequired(id: string): AgentConversation {
+    const conversation = this.getAgentConversation(id);
+    if (!conversation) throw new Error(`找不到会话：${id}`);
+    return conversation;
+  }
+
   private getLectureRequired(id: string): Lecture {
     const lecture = this.getLecture(id);
     if (!lecture) throw new Error(`找不到讲座：${id}`);
@@ -1341,6 +1520,28 @@ export class AppDatabase {
         completed_at TEXT
       );
       CREATE INDEX IF NOT EXISTS operations_status_idx ON operations(status, created_at);
+      CREATE TABLE IF NOT EXISTS agent_conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_message_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS agent_conversations_status_idx
+        ON agent_conversations(status, updated_at);
+      CREATE TABLE IF NOT EXISTS agent_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES agent_conversations(id),
+        sequence INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'toolResult')),
+        schema_version INTEGER NOT NULL DEFAULT 1,
+        message_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(conversation_id, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS agent_messages_conversation_idx
+        ON agent_messages(conversation_id, sequence);
     `);
     const lectureColumns = this.sqlite.prepare("PRAGMA table_info(lectures)").all() as Row[];
     if (!lectureColumns.some((column) => String(column.name) === "requires_presentation")) {
@@ -1500,6 +1701,30 @@ function parseWorkflowAction(row: Row): WorkflowAction {
     createdAt: String(row.created_at),
     approvedAt: nullableString(row.approved_at),
     executedAt: nullableString(row.executed_at),
+  };
+}
+
+function parseAgentConversation(row: Row): AgentConversation {
+  return {
+    id: String(row.id),
+    title: nullableString(row.title),
+    status: String(row.status) as AgentConversationStatus,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    lastMessageAt: nullableString(row.last_message_at),
+    messageCount: Number(row.message_count ?? 0),
+  };
+}
+
+function parseAgentTranscriptEntry(row: Row): AgentTranscriptEntry {
+  return {
+    id: String(row.id),
+    conversationId: String(row.conversation_id),
+    sequence: Number(row.sequence),
+    role: String(row.role),
+    schemaVersion: Number(row.schema_version ?? AGENT_MESSAGE_SCHEMA_VERSION),
+    message: JSON.parse(String(row.message_json)) as unknown,
+    createdAt: String(row.created_at),
   };
 }
 

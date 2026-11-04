@@ -36,6 +36,8 @@ zotero_items ─── item_key ───> Zotero 本地 API（外部）
 
 knowledge_sync_state          # Zotero 增量游标等键值状态
 workflow_actions              # 固定 payload 的 Calendar 审批
+agent_conversations ──< agent_messages
+                       (conversation_id, sequence 唯一)
 config.json                   # 用户配置，不在 SQLite
 secrets.dpapi                 # 加密凭据，不在 SQLite
 ```
@@ -175,6 +177,40 @@ Zotero 题录副本和本地分析状态。Zotero 仍是题录真相来源。
 - `zotero.lastSyncAt`
 
 不得在这里保存凭据或大段正文。
+
+### 3.8 `agent_conversations`
+
+桌面端 Agent 对话的索引与生命周期（v0.4.0）。
+
+| 字段 | 类型 | 约束/语义 |
+| --- | --- | --- |
+| `id` | TEXT | UUID，主键 |
+| `title` | TEXT | 可空；首条用户消息自动生成，用户可改 |
+| `status` | TEXT | `active / archived`；归档只阻止继续提问 |
+| `created_at` | TEXT | UTC |
+| `updated_at` | TEXT | 每次追加消息或修改元数据时更新 |
+| `last_message_at` | TEXT | 可空，用于列表排序与恢复 |
+
+### 3.9 `agent_messages`
+
+Agent 消息轨迹。这里保存的是 `pi-agent-core` 的 `AgentMessage` 原文，不是给 UI 用的摘要文本。
+
+| 字段 | 类型 | 约束/语义 |
+| --- | --- | --- |
+| `id` | TEXT | UUID，主键 |
+| `conversation_id` | TEXT | 外键指向 `agent_conversations(id)` |
+| `sequence` | INTEGER | 会话内自增，`UNIQUE(conversation_id, sequence)` |
+| `role` | TEXT | `system / user / assistant / toolResult` |
+| `schema_version` | INTEGER | 当前为 1，读取时只做必要迁移 |
+| `message_json` | TEXT | 完整 `AgentMessage`：文本、tool call、toolResult、usage、错误 |
+| `created_at` | TEXT | UTC |
+
+规则：
+
+- 用户消息在调用模型前写入；assistant/toolResult 消息在本轮结束后同一事务追加。
+- 不逐 token 写入；流中断时保存明确的 `stopReason=error` 消息，不把半条回复当成功。
+- 尾部未完成的 tool call 在下一次 prompt 前被丢弃，避免畸形 transcript。
+- 删除会话时同时删除消息；归档不等于删除。
 
 ## 4. 非 SQLite 数据
 
@@ -337,6 +373,8 @@ UI 推导状态：
 - `zotero_items_analysis_idx(analysis_state, first_seen_at)`
 - `zotero_items_first_seen_idx(first_seen_at)`
 - `operations_status_idx(status, created_at)`
+- `agent_conversations_status_idx(status, updated_at)`
+- `agent_messages_conversation_idx(conversation_id, sequence)`
 
 迁移规则：
 
@@ -363,7 +401,7 @@ UI 推导状态：
 ### 阶段 3
 
 - 搜索规模确实需要时，再评估 SQLite FTS；Idea 仍以 Markdown 为真相来源。
-- 如果 Agent 对话需要恢复，再单独设计会话持久化；首版不默认保存完整对话。
+- 会话持久化已在 v0.4.0 完成（`agent_conversations` / `agent_messages`）；后续再增加历史裁剪、摘要与长期记忆表，并保持删除即不可读取。
 
 ### 发布前
 
