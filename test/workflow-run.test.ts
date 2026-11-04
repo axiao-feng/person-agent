@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { executeStoredApproval, type ApprovalExecutor } from "../src/calendar-actions.js";
+import {
+  executeStoredApproval,
+  WorkflowActionError,
+  type ApprovalExecutor,
+} from "../src/calendar-actions.js";
 import { AppDatabase } from "../src/database.js";
 import type { CalendarEvent } from "../src/integrations/google.js";
 import { TASK_SCHEDULE_WORKFLOW, createWorkflowRegistry } from "../src/workflows/registry.js";
@@ -208,6 +212,63 @@ test("cancelling a waiting run rejects the approval it was waiting on", async ()
 
     const again = await cancelRun({ database, registry }, run.id, NOW);
     assert.equal(again.status, "cancelled", "cancel is idempotent");
+  } finally {
+    database.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cancelling rejects retryable failures and refuses an executing approval", async () => {
+  const root = mkdtempSync(join(tmpdir(), "person-agent-workflow-run-test-"));
+  const database = new AppDatabase(join(root, "test.db"));
+  const registry = createWorkflowRegistry();
+  try {
+    const failedTask = database.createResearchTask({ title: "失败后取消", estimatedMinutes: 30 }, NOW);
+    const failedRun = database.createWorkflowRun(
+      { kind: TASK_SCHEDULE_WORKFLOW, input: { taskId: failedTask.id, startAt: START, endAt: END } },
+      NOW,
+    );
+    const failedWaiting = await advanceRun({ database, registry }, failedRun.id, NOW);
+    const failedApprovalId = String(failedWaiting.state.approvalId);
+    database.failWorkflowAction(failedApprovalId, "temporary failure");
+
+    const cancelled = await cancelRun({ database, registry }, failedRun.id, NOW);
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(database.getWorkflowAction(failedApprovalId)?.status, "rejected");
+    await assert.rejects(
+      executeStoredApproval({
+        database,
+        actionId: failedApprovalId,
+        executor: {
+          async create(input) {
+            return eventWith("must-not-run", input.title, input.startAt, input.endAt);
+          },
+          async update(id, input) {
+            return eventWith(id, input.title, input.startAt, input.endAt);
+          },
+        },
+        now: NOW,
+      }),
+      /已被拒绝/,
+    );
+    assert.equal(database.getResearchTask(failedTask.id)?.status, "draft");
+
+    const executingTask = database.createResearchTask({ title: "执行中取消", estimatedMinutes: 30 }, NOW);
+    const executingRun = database.createWorkflowRun(
+      { kind: TASK_SCHEDULE_WORKFLOW, input: { taskId: executingTask.id, startAt: START, endAt: END } },
+      NOW,
+    );
+    const executingWaiting = await advanceRun({ database, registry }, executingRun.id, NOW);
+    const executingApprovalId = String(executingWaiting.state.approvalId);
+    const action = database.approveWorkflowAction(executingApprovalId, NOW);
+    database.claimWorkflowAction(action.id, action.kind, action.payload);
+
+    await assert.rejects(
+      cancelRun({ database, registry }, executingRun.id, NOW),
+      (error) => error instanceof WorkflowActionError && error.status === 409,
+    );
+    assert.equal(database.getWorkflowRun(executingRun.id)?.status, "waiting_for_user");
+    assert.equal(database.getWorkflowAction(executingApprovalId)?.status, "executing");
   } finally {
     database.close();
     rmSync(root, { recursive: true, force: true });

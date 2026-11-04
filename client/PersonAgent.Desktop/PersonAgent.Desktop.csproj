@@ -9,7 +9,7 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>PersonAgent.Desktop</AssemblyName>
     <RootNamespace>PersonAgent.Desktop</RootNamespace>
-    <Version>0.8.1</Version>
+    <Version>0.8.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 

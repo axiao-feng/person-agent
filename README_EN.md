@@ -10,10 +10,10 @@
 
 ### Turn email, calendar, papers and tasks into one timeline you can actually execute
 
-[![Version](https://img.shields.io/badge/version-0.8.1-4c8bf5?style=flat-square)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.2-4c8bf5?style=flat-square)](./CHANGELOG.md)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-339933?style=flat-square)](./package.json)
 [![.NET](https://img.shields.io/badge/.NET-8%20WPF-512bd4?style=flat-square)](./client/PersonAgent.Desktop/PersonAgent.Desktop.csproj)
-[![Tests](https://img.shields.io/badge/tests-120%20%2B%208-2e7d5b?style=flat-square)](./test)
+[![Tests](https://img.shields.io/badge/tests-121%20%2B%208-2e7d5b?style=flat-square)](./test)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4?style=flat-square)](./start-client.cmd)
 
 **Windows 10/11 · single user · local-first · external writes require approval**
@@ -30,7 +30,7 @@ Person Agent is a native Windows workspace for graduate students. It reads Gmail
 
 It is not a chat bot. The daily interface is a WPF client; domain data lives in local SQLite and Obsidian. The model handles judgement and wording, while deterministic code plus an approval gate performs external writes. You do not need a browser or a terminal to use it.
 
-> Current version **0.8.1**. This is a personal project with no public remote and no support commitment. Locally, **120 Node tests** and **8 desktop contract tests** pass.
+> Current version **0.8.2**. This is a personal project with no public remote and no support commitment. Locally, **121 Node tests** and **8 desktop contract tests** pass.
 
 ## Manual workflow vs Person Agent
 
@@ -167,7 +167,7 @@ pnpm test:desktop
 pnpm build
 ```
 
-- 120 Node tests: task state machine, approval gate, candidate slots, conflict replanning, idempotent Obsidian blocks, Zotero paging and degradation, conversation round-trip and restart recovery, context budget and summaries, long-term memory, workflow waiting and recovery, tool policy, reference verification, plus API auth, degradation and `serve` lifecycle.
+- 121 Node tests: task state machine, approval gate, candidate slots, conflict replanning, idempotent Obsidian blocks, Zotero paging and degradation, conversation round-trip and restart recovery, context budget and summaries, long-term memory, workflow waiting and recovery, tool policy, reference verification, plus API auth, degradation and `serve` lifecycle.
 - 8 desktop contract tests: deep-link parsing, protocol URIs, single-instance payloads, the client registration file, and DTO parsing for conversations, answers, references and memories.
 - Another 20 live-model scenario evaluations (`pnpm run eval:agent`) actually call DeepSeek and are excluded from the normal `pnpm test`.
 

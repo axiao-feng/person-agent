@@ -553,6 +553,19 @@ test("a workflow run can be cancelled and terminal runs reject resume", async ()
 
     const resume = await api.send(`/api/workflows/${body.workflowRunId}/resume`, "POST");
     assert.equal(resume.status, 409);
+
+    const restaged = await api.send(`/api/tasks/${api.fixture.draftTaskId}/schedule`, "POST", {
+      startAt: "2026-10-30T05:00:00Z",
+      endAt: "2026-10-30T06:00:00Z",
+    });
+    const restagedBody = (await restaged.json()) as { workflowRunId: string; approval: Approval };
+    const executing = api.fixture.database.approveWorkflowAction(restagedBody.approval.id, NOW);
+    api.fixture.database.claimWorkflowAction(executing.id, executing.kind, executing.payload);
+    const conflict = await api.send(`/api/workflows/${restagedBody.workflowRunId}/cancel`, "POST");
+    assert.equal(conflict.status, 409);
+    assert.equal(api.fixture.database.getWorkflowRun(restagedBody.workflowRunId)?.status, "waiting_for_user");
+    assert.equal(api.fixture.database.getWorkflowAction(executing.id)?.status, "executing");
+
     const missing = await api.get("/api/workflows/00000000-0000-4000-8000-000000000000");
     assert.equal(missing.status, 404);
   });

@@ -1,4 +1,5 @@
 import type { AppDatabase, WorkflowRun, WorkflowRunStatus } from "../database.js";
+import { WorkflowActionError } from "../calendar-actions.js";
 import {
   MAX_STEPS_PER_ADVANCE,
   type WorkflowRegistry,
@@ -159,8 +160,8 @@ export async function advanceRun(
  * Cancels a run and invalidates anything it was still waiting on.
  *
  * A cancelled run must not leave a usable approval behind: if the run still
- * references a pending or approved action, that action is rejected in the same
- * operation so a later click cannot write to the calendar.
+ * references an action that can still be executed, that action is rejected so
+ * a later click cannot write to the calendar.
  */
 export async function cancelRun(
   deps: WorkflowRuntimeDeps,
@@ -177,7 +178,10 @@ export async function cancelRun(
     // The calendar write already happened: cancelling would misreport state, so
     // finish the run instead of pretending it was cancelled.
     if (action?.status === "executed") return await advanceRun(deps, run.id, now);
-    if (action && (action.status === "pending" || action.status === "approved")) {
+    if (action?.status === "executing") {
+      throw new WorkflowActionError("审批正在执行，请稍后再取消。", 409);
+    }
+    if (action && ["pending", "approved", "failed"].includes(action.status)) {
       deps.database.rejectWorkflowAction(approvalId);
     }
   }
@@ -189,7 +193,8 @@ export async function cancelRun(
   return deps.database.cancelWorkflowRun(run.id, now);
 }
 
-/** Worker entry point: resumes runs that wait for the user or were abandoned mid-step. */export async function resumePendingRuns(
+/** Worker entry point: resumes runs that wait for the user or were abandoned mid-step. */
+export async function resumePendingRuns(
   deps: WorkflowRuntimeDeps,
   options: { now?: Date; limit?: number } = {},
 ): Promise<WorkflowRun[]> {
