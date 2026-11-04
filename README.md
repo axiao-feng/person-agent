@@ -148,7 +148,12 @@ Person Agent Knowledge/
 
 本地接口覆盖 `docs/api/openapi.yaml` 中的健康、今日、任务、候选时段、排期、日历、讲座、Idea、论文、知识同步/整理、operation、审批、审批历史、设置、搜索和 Agent。
 
-构建与运行：
+日常启动：
+
+- 双击桌面或开始菜单中的 `Person Agent` 快捷方式。
+- 或在仓库根目录运行 `start-client.cmd`。
+
+`start-client.cmd` 会自动使用仓库内的 `.dotnet`；如果 `dist/src/cli.js` 或 Debug 客户端不存在，会先执行构建。需要手动构建时：
 
 ```powershell
 pnpm build
