@@ -3,7 +3,13 @@ import { Type, type TSchema } from "typebox";
 
 import { linkTaskToCalendar } from "./calendar-actions.js";
 import type { AppConfig } from "./config.js";
-import { AppDatabase, type ResearchTaskStatus } from "./database.js";
+import {
+  AppDatabase,
+  type Lecture,
+  type ResearchTask,
+  type ResearchTaskStatus,
+  type WorkflowAction,
+} from "./database.js";
 import { GoogleService, type CalendarEventInput } from "./integrations/google.js";
 import { getWeather } from "./integrations/weather.js";
 import { createIdeaNote } from "./knowledge/vault.js";
@@ -136,14 +142,17 @@ const googleToolModule: ToolModule = (context) => {
       }),
       execute: async (_id, params, signal) => {
         const payload = calendarPayload(params);
-        if (!params.approvalId) return jsonResult(approvalRequired(context.database.stageWorkflowAction("calendar.create", payload)));
+        if (!params.approvalId) {
+          const staged = context.database.stageWorkflowAction("calendar.create", payload);
+          return jsonResult(approvalRequired(staged), [approvalReference(staged)]);
+        }
         const action = context.database.claimWorkflowAction(params.approvalId, "calendar.create", payload);
-        if (action.status === "executed") return jsonResult(action.result);
+        if (action.status === "executed") return jsonResult(action.result, [approvalReference(action)]);
         try {
           const event = await (await google()).createCalendarEvent(payload, action.id, signal);
           linkTaskToCalendar(context.database, payload.taskId, event.id, payload.startAt, payload.endAt);
           context.database.completeWorkflowAction(action.id, event);
-          return jsonResult(event);
+          return jsonResult(event, [approvalReference(action)]);
         } catch (error) {
           context.database.failWorkflowAction(action.id, safeToolError(error));
           throw error;
@@ -168,14 +177,17 @@ const googleToolModule: ToolModule = (context) => {
       }),
       execute: async (_id, params, signal) => {
         const payload = calendarPayload(params);
-        if (!params.approvalId) return jsonResult(approvalRequired(context.database.stageWorkflowAction("calendar.update", payload)));
+        if (!params.approvalId) {
+          const staged = context.database.stageWorkflowAction("calendar.update", payload);
+          return jsonResult(approvalRequired(staged), [approvalReference(staged)]);
+        }
         const action = context.database.claimWorkflowAction(params.approvalId, "calendar.update", payload);
-        if (action.status === "executed") return jsonResult(action.result);
+        if (action.status === "executed") return jsonResult(action.result, [approvalReference(action)]);
         try {
           const event = await (await google()).updateCalendarEvent(params.calendarEventId, payload, signal);
           linkTaskToCalendar(context.database, payload.taskId, event.id, payload.startAt, payload.endAt);
           context.database.completeWorkflowAction(action.id, event);
-          return jsonResult(event);
+          return jsonResult(event, [approvalReference(action)]);
         } catch (error) {
           context.database.failWorkflowAction(action.id, safeToolError(error));
           throw error;
@@ -219,7 +231,10 @@ const localToolModule: ToolModule = (context) => [
       priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")])),
       confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
     }),
-    execute: async (_id, params) => jsonResult(context.database.createResearchTask(params)),
+    execute: async (_id, params) => {
+      const task = context.database.createResearchTask(params);
+      return jsonResult(task, [taskReference(task)]);
+    },
   }),
   defineTool({
     name: "capture_idea",
@@ -232,19 +247,21 @@ const localToolModule: ToolModule = (context) => [
       title: Type.Optional(Type.String({ maxLength: 200, description: "标题；省略时从正文首行生成" })),
       tags: Type.Optional(Type.Array(Type.String({ maxLength: 50 }), { maxItems: 20 })),
     }),
-    execute: async (_id, params) =>
-      jsonResult(
-        createIdeaNote(
-          context.config.knowledgeVaultPath,
-          {
-            body: params.body,
-            ...(params.title === undefined ? {} : { title: params.title }),
-            ...(params.tags === undefined ? {} : { tags: params.tags }),
-          },
-          new Date(),
-          context.config.timezone,
-        ),
-      ),
+    execute: async (_id, params) => {
+      const note = createIdeaNote(
+        context.config.knowledgeVaultPath,
+        {
+          body: params.body,
+          ...(params.title === undefined ? {} : { title: params.title }),
+          ...(params.tags === undefined ? {} : { tags: params.tags }),
+        },
+        new Date(),
+        context.config.timezone,
+      );
+      return jsonResult(note, [
+        { type: "idea", id: note.relativePath, title: note.title },
+      ]);
+    },
   }),
   defineTool({
     name: "list_tasks",
@@ -262,7 +279,10 @@ const localToolModule: ToolModule = (context) => [
         ]),
       ),
     }),
-    execute: async (_id, params) => jsonResult(context.database.listResearchTasks(params.status as ResearchTaskStatus | undefined)),
+    execute: async (_id, params) => {
+      const tasks = context.database.listResearchTasks(params.status as ResearchTaskStatus | undefined);
+      return jsonResult(tasks, tasks.slice(0, 10).map(taskReference));
+    },
   }),
   defineTool({
     name: "update_task",
@@ -290,7 +310,10 @@ const localToolModule: ToolModule = (context) => [
         ]),
       ),
     }),
-    execute: async (_id, { id, ...patch }) => jsonResult(context.database.updateResearchTask(id, patch)),
+    execute: async (_id, { id, ...patch }) => {
+      const task = context.database.updateResearchTask(id, patch);
+      return jsonResult(task, [taskReference(task)]);
+    },
   }),
   defineTool({
     name: "list_pending_actions",
@@ -301,7 +324,10 @@ const localToolModule: ToolModule = (context) => [
         Type.Union([Type.Literal("pending"), Type.Literal("approved"), Type.Literal("failed")]),
       ),
     }),
-    execute: async (_id, params) => jsonResult(context.database.listWorkflowActions(params.status)),
+    execute: async (_id, params) => {
+      const actions = context.database.listWorkflowActions(params.status);
+      return jsonResult(actions, actions.slice(0, 10).map(approvalReference));
+    },
   }),
   defineTool({
     name: "create_lecture",
@@ -320,7 +346,10 @@ const localToolModule: ToolModule = (context) => [
         Type.Boolean({ description: "仅当用户明确表示本次活动需要汇报时设为 true" }),
       ),
     }),
-    execute: async (_id, params) => jsonResult(context.database.createLecture(params)),
+    execute: async (_id, params) => {
+      const lecture = context.database.createLecture(params);
+      return jsonResult(lecture, [lectureReference(lecture)]);
+    },
   }),
   defineTool({
     name: "list_lectures",
@@ -330,13 +359,13 @@ const localToolModule: ToolModule = (context) => [
       from: Type.Optional(Type.String({ description: "ISO 起始时间" })),
       to: Type.Optional(Type.String({ description: "ISO 结束时间" })),
     }),
-    execute: async (_id, params) =>
-      jsonResult(
-        context.database.listLectures(
-          params.from ? validDate(params.from, "from") : undefined,
-          params.to ? validDate(params.to, "to") : undefined,
-        ),
-      ),
+    execute: async (_id, params) => {
+      const lectures = context.database.listLectures(
+        params.from ? validDate(params.from, "from") : undefined,
+        params.to ? validDate(params.to, "to") : undefined,
+      );
+      return jsonResult(lectures, lectures.slice(0, 10).map(lectureReference));
+    },
   }),
   defineTool({
     name: "update_lecture",
@@ -353,7 +382,10 @@ const localToolModule: ToolModule = (context) => [
       notes: Type.Optional(Type.String({ maxLength: 4_000 })),
       requiresPresentation: Type.Optional(Type.Boolean({ description: "是否需要汇报" })),
     }),
-    execute: async (_id, { id, ...changes }) => jsonResult(context.database.updateLecture(id, changes)),
+    execute: async (_id, { id, ...changes }) => {
+      const lecture = context.database.updateLecture(id, changes);
+      return jsonResult(lecture, [lectureReference(lecture)]);
+    },
   }),
   defineTool({
     name: "cancel_lecture",
@@ -361,7 +393,10 @@ const localToolModule: ToolModule = (context) => [
     description: "取消讲座并禁用关联提醒。",
     executionMode: "sequential",
     parameters: Type.Object({ id: Type.String({ minLength: 1 }) }),
-    execute: async (_id, params) => jsonResult(context.database.cancelLecture(params.id)),
+    execute: async (_id, params) => {
+      const lecture = context.database.cancelLecture(params.id);
+      return jsonResult(lecture, [lectureReference(lecture)]);
+    },
   }),
   defineTool({
     name: "create_reminder",
@@ -440,11 +475,40 @@ function defineTool<T extends TSchema>(tool: AgentTool<T>): AgentTool<T> {
   return tool;
 }
 
-function jsonResult(value: unknown): AgentToolResult<unknown> {
-  return {
-    content: [{ type: "text", text: JSON.stringify(value) }],
-    details: value,
-  };
+type ToolReference = {
+  type: "paper" | "task" | "idea" | "lecture" | "approval";
+  id: string;
+  title: string;
+};
+
+/**
+ * Every tool result may carry `references` metadata. The response layer only
+ * trusts these entries (never the model's text) and re-verifies them locally.
+ */
+function jsonResult(value: unknown, references: ToolReference[] = []): AgentToolResult<unknown> {
+  if (references.length === 0) {
+    return { content: [{ type: "text", text: JSON.stringify(value) }], details: value };
+  }
+  const details =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? { ...(value as Record<string, unknown>), references }
+      : { value, references };
+  return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+}
+
+function taskReference(task: ResearchTask): ToolReference {
+  return { type: "task", id: task.id, title: task.title };
+}
+
+function lectureReference(lecture: Lecture): ToolReference {
+  return { type: "lecture", id: lecture.id, title: lecture.title };
+}
+
+function approvalReference(action: WorkflowAction): ToolReference {
+  const title = typeof action.payload.title === "string" && action.payload.title.trim()
+    ? action.payload.title.trim().slice(0, 200)
+    : "待审批的日历操作";
+  return { type: "approval", id: action.id, title };
 }
 
 function validDate(value: string, label: string): Date {

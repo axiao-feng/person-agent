@@ -363,6 +363,7 @@ async function defaultAgentService(request: RouteRequest, input: AgentTurnInput)
       database: request.database,
     }),
     now: request.now,
+    vaultPath: request.runtime.config.knowledgeVaultPath,
     summary: {
       generate: summaryGeneratorFor({ paths: request.paths, config: request.runtime.config }),
       onError: (error) => {

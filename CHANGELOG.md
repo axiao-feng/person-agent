@@ -1,5 +1,38 @@
 # 更新日志
 
+## v0.8.0 — 2026-11-04
+
+实现 §16.8 的 P2：工具权限策略与回答引用，补齐 Agent 安全边界与可追溯性。
+
+### 新增
+
+**工具权限策略**
+- 新增 `src/tool-policy.ts`：每个已注册工具都有静态 `{risk, approval}` 策略；`read`、`local_write`、`external_write` 三类，外部写入必须是 `fixed_payload`。
+- `createAssistant` 通过 `beforeToolCall` 强制检查：未在策略表中的工具一律阻止，并以错误工具结果告知模型；提示词和路由都无法越权开放工具。
+- 策略表与 `buildTools` 注册的工具一一对应，测试会校验没有遗漏。
+
+**回答引用**
+- 工具结果可带结构化 `references` 元数据（task / lecture / approval / paper / idea）；列表类工具最多附带 10 条。
+- `src/agent/references.ts` 只从本轮实际 toolResult 中收集引用，去重后回到 SQLite（idea 则检查 Vault 文件）复核，最多返回 20 条；模型正文里的对象 ID 永远不会被当成引用。
+- 会话轮次返回真实引用，`/api/agent/messages` 与 `/api/conversations/:id/messages` 的响应因此不再是空数组。
+- WPF `Ctrl+K` 面板在回答下方显示引用标签，点击可跳转到对应任务、论文、讲座或 Idea。
+
+**测试与文档**
+- 新增 `test/tool-policy.test.ts`（4 项）与 `test/references.test.ts`（3 项），并补充会话级引用测试与 1 项 WPF 合同测试。
+- `PRODUCT_DESIGN.md` §16.5/§16.7/§16.8、`docs/01/04/05` 与 README 同步更新。
+
+### 验证
+
+- `pnpm test`：117 项通过（v0.7.0 为 109 项）。
+- `pnpm test:desktop`：8 项通过。
+- TypeScript 类型检查与 `dist` 构建通过；WPF Debug 构建 0 警告 0 错误。
+
+### 已知限制
+
+- 引用只覆盖工具直接返回的对象；邮件 message ID、Zotero 全文片段等尚未纳入引用类型。
+- 权限策略是静态表，没有按任务或风险动态开放工具，也没有用户可配置的确认级别。
+- 邮件发送/回复仍未注册工具（保持明确非目标）。
+
 ## v0.7.0 — 2026-11-04
 
 实现 §16.8 的 P1：持久 Workflow Run，先让一个真实需要等待和恢复的流程具备断点续跑。

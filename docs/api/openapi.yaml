@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Person Agent Local API
-  version: 0.7.0
+  version: 0.8.0
   summary: WPF 客户端与本机 TypeScript 服务之间的实现合同
   description: |
     本合同描述 Windows 当前用户会话内的 loopback API。
@@ -2070,6 +2070,7 @@ components:
             answer: { type: string }
             references:
               type: array
+              description: 只来自本轮实际工具结果，并在本地复核对象存在；模型正文中的 ID 不会成为引用
               items: { $ref: "#/components/schemas/AgentReference" }
             conversation: { $ref: "#/components/schemas/Conversation" }
             messages:

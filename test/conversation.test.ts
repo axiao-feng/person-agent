@@ -312,6 +312,25 @@ test("confirmed memories are injected into the next request", async () => {
   });
 });
 
+test("a turn returns references collected from real tool results", async () => {
+  await withConversationHarness(async (harness) => {
+    harness.faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("create_task", { title: "引用测试任务" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxText("已创建任务。")),
+    ]);
+    const turn = await runConversationTurn({
+      database: harness.database,
+      message: "帮我建一个任务",
+      createAgent: harness.createAgent,
+      now: NOW,
+    });
+    assert.equal(turn.answer, "已创建任务。");
+    const task = harness.database.listResearchTasks()[0];
+    assert.equal(turn.references.length, 1);
+    assert.deepEqual(turn.references[0], { type: "task", id: task?.id, title: "引用测试任务" });
+  });
+});
+
 test("a failing summary never fails the turn", async () => {
   await withConversationHarness(async (harness) => {
     const conversation = harness.database.createAgentConversation("摘要失败", NOW);

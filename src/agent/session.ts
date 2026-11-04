@@ -11,15 +11,10 @@ import {
 import type { AppPaths } from "../paths.js";
 import type { ContextManifest, ConversationContextOptions } from "./context.js";
 import { isStandardMessage } from "./message-text.js";
+import { collectAgentReferences, type AgentReference } from "./references.js";
 import { type SummaryGenerator, refreshConversationSummary } from "./summary.js";
 export { messageText } from "./message-text.js";
-
-/** A local object an answer was actually derived from. Empty until P2 reference collection lands. */
-export type AgentReference = {
-  type: "paper" | "task" | "idea" | "lecture" | "approval";
-  id: string;
-  title: string;
-};
+export type { AgentReference } from "./references.js";
 
 /** How many confirmed memories are eligible for prompt injection per request. */
 export const SESSION_MEMORY_LIMIT = 20;
@@ -55,6 +50,8 @@ export type ConversationTurnOptions = {
   memories?: ConversationContextOptions["memories"];
   budgetTokens?: number;
   onContext?: (manifest: ContextManifest) => void;
+  /** Used to verify Obsidian idea references; omitted in unit tests that have no vault. */
+  vaultPath?: string;
 };
 
 export class ConversationNotFoundError extends Error {
@@ -156,6 +153,12 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
     );
   }
 
+  const references = collectAgentReferences({
+    database: options.database,
+    messages: produced,
+    ...(options.vaultPath ? { vaultPath: options.vaultPath } : {}),
+  });
+
   let summaryId: string | null = null;
   if (options.summary) {
     try {
@@ -175,7 +178,7 @@ export async function runConversationTurn(options: ConversationTurnOptions): Pro
   return {
     conversation: options.database.getAgentConversation(conversation.id) ?? conversation,
     answer,
-    references: [],
+    references,
     messages: persisted,
     context: manifests.at(-1) ?? null,
     summaryId,

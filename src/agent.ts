@@ -7,6 +7,7 @@ import type { AppConfig } from "./config.js";
 import { AppDatabase } from "./database.js";
 import type { AppPaths } from "./paths.js";
 import { deepSeekApiKey } from "./secrets.js";
+import { authorizeToolCall, type ToolPolicyRegistry } from "./tool-policy.js";
 import { buildTools, type ToolModule } from "./tools.js";
 
 export type AssistantMode = "chat" | "briefing" | "knowledge";
@@ -23,6 +24,8 @@ export async function createAssistant(options: {
   sessionId?: string;
   /** Enables token-budgeted context assembly for every model request. */
   context?: ConversationContextOptions;
+  /** Overrides the static tool policy table (tests and extensions only). */
+  toolPolicies?: ToolPolicyRegistry;
 }): Promise<Agent> {
   const models = await configuredModels(options.paths);
   const model = models.getModel("deepseek", "deepseek-flash");
@@ -48,6 +51,7 @@ export async function createAssistant(options: {
       ? { transformContext: contextTransform({ context, budgetTokens, toolTokens }) }
       : {}),
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    beforeToolCall: async ({ toolCall }) => authorizeToolCall(toolCall.name, options.toolPolicies),
     streamFn: models.streamSimple.bind(models),
     toolExecution: "parallel",
   });

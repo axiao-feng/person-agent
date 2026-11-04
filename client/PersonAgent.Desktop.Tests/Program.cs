@@ -180,6 +180,33 @@ Check("Memory JSON maps to the settings view model fields", () =>
     Equal("explicit_user", parsed.Items[0].SourceType, "source type");
 });
 
+Check("Answer references map to local objects the client can open", () =>
+{
+    const string json = """
+        {
+          "conversationId": "conv-1",
+          "answer": "已创建任务。",
+          "references": [
+            { "type": "task", "id": "task-1", "title": "整理实验数据" },
+            { "type": "approval", "id": "approval-1", "title": "排期" }
+          ],
+          "conversation": { "id": "conv-1", "title": "测试", "status": "active", "createdAt": "", "updatedAt": "", "lastMessageAt": null, "messageCount": 2 },
+          "messages": []
+        }
+        """;
+    var options = new JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    var parsed = JsonSerializer.Deserialize<AgentMessageResponse>(json, options);
+    if (parsed is null) throw new InvalidOperationException("agent response did not deserialize");
+    Equal(2, parsed.References.Count, "reference count");
+    Equal("task", parsed.References[0].Type, "first reference type");
+    Equal("task-1", parsed.References[0].Id, "first reference id");
+    Equal("整理实验数据", parsed.References[0].Title, "first reference title");
+});
+
 if (failures.Count > 0)
 {
     Console.Error.WriteLine($"{failures.Count} desktop contract test(s) failed:");

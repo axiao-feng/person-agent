@@ -37,9 +37,10 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="1.5*" />
+            <RowDefinition Height="1.4*" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="1.5*" />
+            <RowDefinition Height="1.6*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -162,7 +163,26 @@
             </Grid>
         </Border>
 
-        <TextBlock Grid.Row="5" Text="{Binding ErrorMessage}" Foreground="{StaticResource Brush.Red}"
+        <ItemsControl Grid.Row="5" ItemsSource="{Binding References}" Margin="2,10,2,0"
+                      Visibility="{Binding HasReferences, Converter={StaticResource BoolToVisibility}}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Style="{StaticResource ToolButton}" Margin="0,0,6,6" Padding="9,3"
+                            Command="{Binding DataContext.OpenReferenceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}"
+                            ToolTip="打开这条回答依据的本地对象">
+                        <TextBlock Text="{Binding Label}" FontSize="12" />
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock Grid.Row="6" Text="{Binding ErrorMessage}" Foreground="{StaticResource Brush.Red}"
                    TextWrapping="Wrap" Margin="2,10,2,0"
                    Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
     </Grid>

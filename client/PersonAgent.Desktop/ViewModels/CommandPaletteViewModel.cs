@@ -47,6 +47,31 @@ public sealed class AgentTurnViewModel
     };
 }
 
+public sealed class AgentReferenceViewModel
+{
+    public AgentReferenceViewModel(AgentReference reference)
+    {
+        Type = reference.Type;
+        Id = reference.Id;
+        Title = reference.Title;
+    }
+
+    public string Type { get; }
+    public string Id { get; }
+    public string Title { get; }
+    public string TypeText => Type switch
+    {
+        "paper" => "论文",
+        "task" => "任务",
+        "idea" => "Idea",
+        "lecture" => "讲座",
+        "approval" => "审批",
+        _ => Type,
+    };
+
+    public string Label => $"{TypeText} · {Title}";
+}
+
 public sealed class CommandPaletteViewModel : ObservableObject
 {
     private readonly LocalApiClient _client;
@@ -76,15 +101,21 @@ public sealed class CommandPaletteViewModel : ObservableObject
         AskCommand = new AsyncRelayCommand(AskAsync);
         OpenSelectedCommand = new AsyncRelayCommand(OpenSelectedAsync);
         NewConversationCommand = new RelayCommand(StartNewConversation);
-        DeleteConversationCommand = new AsyncRelayCommand(DeleteConversationAsync, () => HasConversation);    }
+        DeleteConversationCommand = new AsyncRelayCommand(DeleteConversationAsync, () => HasConversation);
+        OpenReferenceCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is AgentReferenceViewModel reference) _ = OpenReferenceAsync(reference);
+        });    }
 
     public ObservableCollection<SearchResultViewModel> Results { get; } = new();
     public ObservableCollection<AgentTurnViewModel> Transcript { get; } = new();
+    public ObservableCollection<AgentReferenceViewModel> References { get; } = new();
     public ICommand SearchCommand { get; }
     public ICommand AskCommand { get; }
     public ICommand OpenSelectedCommand { get; }
     public ICommand NewConversationCommand { get; }
     public ICommand DeleteConversationCommand { get; }
+    public ICommand OpenReferenceCommand { get; }
     public Action QuickCapture { get; }
     public Action? RequestClose { get; set; }
 
@@ -149,6 +180,7 @@ public sealed class CommandPaletteViewModel : ObservableObject
     public bool HasResults => Results.Count > 0;
     public bool HasNoResults => !IsSearching && Results.Count == 0 && !string.IsNullOrWhiteSpace(Query);
     public bool HasTranscript => Transcript.Count > 0;
+    public bool HasReferences => References.Count > 0;
 
     /// <summary>Restores the most recent active conversation so the next question continues it.</summary>
     public async Task LoadConversationAsync()
@@ -171,6 +203,8 @@ public sealed class CommandPaletteViewModel : ObservableObject
             {
                 Transcript.Add(new AgentTurnViewModel(message));
             }
+            References.Clear();
+            OnPropertyChanged(nameof(HasReferences));
             NotifyConversationChanged();
         }
         catch (Exception error)
@@ -224,6 +258,8 @@ public sealed class CommandPaletteViewModel : ObservableObject
         _conversationId = null;
         _conversationTitle = "";
         Transcript.Clear();
+        References.Clear();
+        OnPropertyChanged(nameof(HasReferences));
         NotifyConversationChanged();
     }
 
@@ -295,6 +331,7 @@ public sealed class CommandPaletteViewModel : ObservableObject
                 }));
             }
             NotifyConversationChanged();
+            ApplyReferences(response.References);
             Query = "";
         }
         catch (Exception error)
@@ -305,6 +342,33 @@ public sealed class CommandPaletteViewModel : ObservableObject
         {
             IsAsking = false;
         }
+    }
+
+    private void ApplyReferences(IReadOnlyList<AgentReference> references)
+    {
+        References.Clear();
+        foreach (var reference in references)
+        {
+            References.Add(new AgentReferenceViewModel(reference));
+        }
+        OnPropertyChanged(nameof(HasReferences));
+    }
+
+    private async Task OpenReferenceAsync(AgentReferenceViewModel reference)
+    {
+        var type = reference.Type switch
+        {
+            "paper" or "task" or "lecture" or "idea" => reference.Type,
+            _ => null,
+        };
+        if (type is null) return;
+        await _openResult(new SearchResult
+        {
+            Type = type,
+            Id = reference.Id,
+            Title = reference.Title,
+        });
+        RequestClose?.Invoke();
     }
 
     private async Task OpenSelectedAsync()

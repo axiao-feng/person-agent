@@ -1,6 +1,6 @@
 # Person Agent 新增 Agent 能力技术栈
 
-> 文档状态：P0 会话（v0.4.0）、Context Builder（v0.5.0）、长期记忆（v0.6.0）与 Workflow Run（v0.7.0）已实现；工作记忆、权限与引用待实现
+> 文档状态：P0–P2 的会话、Context Builder、长期记忆、Workflow Run、工具权限与回答引用均已实现（v0.4.0–v0.8.0）；知识检索工具、工作记忆与语义记忆待实现
 >
 > 对应需求：`PRODUCT_DESIGN.md` 第 16 节
 >
@@ -302,7 +302,14 @@ workflow_steps
 
 现有 knowledge `operations` 暂不迁移到通用 Workflow。先完成一个真实需要断点恢复的新流程，再决定是否合并，避免为了统一而重写稳定路径。
 
-## 7. P2：工具权限与审批策略
+## 7. P2：工具权限与审批策略（v0.8.0 已实现）
+
+### 7.0 实现状态
+
+- `src/tool-policy.ts`：每个已注册工具都有静态 `{risk, approval}`；风险为 `read / local_write / external_write`，审批为 `none / confirm / fixed_payload`。
+- `createAssistant` 注入 `beforeToolCall`，调用 `authorizeToolCall`：未注册策略的工具被阻止并返回错误工具结果；外部写入若未声明固定 payload 审批也会被阻止。
+- 策略表与 `buildTools` 注册的工具由测试保证一一对应，提示词与路由无法绕过。
+- 未做：按任务/风险动态开放工具、用户可配置的确认级别、知识检索/整理工具（仍通过独立 API 与确定性任务触发）。
 
 ### 7.1 静态策略注册表
 
@@ -330,7 +337,15 @@ type ToolPolicy = {
 
 论文搜索、Zotero 同步和知识整理工具直接调用现有领域函数，不从 Agent 内部回调本地 HTTP API。同步/整理继续创建持久 operation，并遵守互斥和限流。
 
-## 8. P2：回答引用与可追溯性
+## 8. P2：回答引用与可追溯性（v0.8.0 已实现）
+
+### 8.0 实现状态
+
+- 工具结果可带结构化 `references`；`jsonResult(value, references)` 统一注入。
+- `src/agent/references.ts` 从本轮 toolResult 收集、去重、按类型复核（SQLite；idea 检查 Vault 文件），最多 20 条。
+- 会话轮次返回真实引用，`/api/agent/messages` 与 `/api/conversations/:id/messages` 不再返回空数组。
+- WPF 面板展示引用标签并可跳转到任务、论文、讲座、Idea。
+- 未做：Gmail message ID 与 Zotero 全文片段引用；审批引用的客户端深链。
 
 ### 8.1 引用来源
 
@@ -421,9 +436,9 @@ type ToolPolicy = {
 
 ### 第四批：P2 权限与引用
 
-1. 抽取静态 ToolPolicy 并覆盖现有工具。
-2. 补知识检索/整理工具。
-3. 从实际 toolResult 生成 AgentReference。
+1. 抽取静态 ToolPolicy 并覆盖现有工具。（v0.8.0 已完成）
+2. 补知识检索/整理工具。（待实现）
+3. 从实际 toolResult 生成 AgentReference。（v0.8.0 已完成）
 
 ## 13. 何时升级技术栈
 
