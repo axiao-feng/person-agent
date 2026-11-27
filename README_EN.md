@@ -30,7 +30,7 @@ Person Agent is a native Windows workspace for graduate students. It reads Gmail
 
 It is not a chat bot. The daily interface is a WPF client; domain data lives in local SQLite and Obsidian. The model handles judgement and wording, while deterministic code plus an approval gate performs external writes. You do not need a browser or a terminal to use it.
 
-> Current version **0.8.2**. This is a personal project with no public remote and no support commitment. Locally, **121 Node tests** and **8 desktop contract tests** pass.
+> Current version **0.8.2**. This is a personal project maintained by its author. Locally, **121 Node tests** and **8 desktop contract tests** pass.
 
 ## Manual workflow vs Person Agent
 
@@ -177,7 +177,7 @@ pnpm build
 - Only `task.schedule` has moved to the durable workflow runtime; knowledge sync and digest still use the older `operations` path.
 - Waiting workflow runs have no client-side list; they are visible through the API and server logs only.
 - DPI scaling at 125%–200% has not been verified step by step, and packaging (MSIX or installer) is undecided.
-- There is no `LICENSE` file, so no license badge is shown and no license has been chosen for you. Decide the terms before publishing.
+- The repository currently has no `LICENSE` file.
 
 ## Documentation
 
@@ -187,4 +187,4 @@ pnpm build
 
 ## Maintenance
 
-This is a single-maintainer local project with no public remote and no issue tracker. Make changes directly in the repository and at minimum run `pnpm run typecheck`, `pnpm test` and `pnpm test:desktop`.
+The project has one maintainer. After changing code, run at least `pnpm run typecheck`, `pnpm test` and `pnpm test:desktop`.

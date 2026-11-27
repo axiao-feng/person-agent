@@ -30,7 +30,7 @@ Person Agent 是一个面向研究生的 Windows 原生工作台。它只读 Gma
 
 它不是聊天机器人。日常界面是 WPF 客户端，领域数据在本地 SQLite 与 Obsidian 里；模型负责判断和表达，外部写入由确定性代码加审批门控执行。关闭浏览器、关掉终端也能用。
 
-> 当前版本 **0.8.2**。这是个人项目，没有公开远端，也没有发布承诺。本地 **121 项 Node 测试**与 **8 项桌面合同测试**通过。
+> 当前版本 **0.8.2**。这是个人项目，由作者维护。本地 **121 项 Node 测试**与 **8 项桌面合同测试**通过。
 
 ## 手工流程 vs Person Agent
 
@@ -177,7 +177,7 @@ pnpm build
 - 只有 `task.schedule` 一个 workflow 迁移到可恢复运行时，知识同步/整理仍走原有 `operations`。
 - 等待中的 workflow 没有客户端列表，只能通过 API 与服务端日志查看。
 - 高 DPI 125%–200% 尚未逐档人工验收；发布方式（MSIX 或安装器）未定。
-- 没有任何 `LICENSE` 文件，因此不提供许可证徽章，也未替你选择协议。若准备公开，需要先决定授权范围再补 `LICENSE`。
+- 仓库目前没有 `LICENSE` 文件。
 
 ## 文档
 
@@ -187,4 +187,4 @@ pnpm build
 
 ## 维护状态
 
-这是单人维护的本地项目，没有公开远端，也没有 Issue 渠道。改动请直接在仓库里做，并至少跑通 `pnpm run typecheck`、`pnpm test` 和 `pnpm test:desktop`。
+项目由一人维护。修改代码后，请至少跑通 `pnpm run typecheck`、`pnpm test` 和 `pnpm test:desktop`。
